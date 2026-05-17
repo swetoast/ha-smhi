@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SMHI",
+        "description": "Konfigurera SMHI-prognos. Hem-positionen är just nu {home_latitude}, {home_longitude}. Stäng av Hem-position om du vill använda egna koordinater.",
+        "data": {
+          "name": "Namn",
+          "use_home_location": "Använd Home Assistant Hem-position",
+          "latitude": "Latitud",
+          "longitude": "Longitud"
+        }
+      },
+      "confirm": {
+        "title": "Bekräfta SMHI-konfiguration",
+        "description": "SMHI svarade korrekt.\n\nNamn: {name}\nKoordinater: {latitude}, {longitude}\nNärmaste gridpunkt: {grid_point}\nReferenstid: {reference_time}\nSkapad tid: {created_time}"
+      },
+      "reconfigure": {
+        "title": "Konfigurera om SMHI",
+        "description": "Uppdatera koordinater eller växla tillbaka till Home Assistant Hem-position.",
+        "data": {
+          "name": "Namn",
+          "use_home_location": "Använd Home Assistant Hem-position",
+          "latitude": "Latitud",
+          "longitude": "Longitud"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kunde inte ansluta till SMHI. Försök igen senare.",
+      "out_of_bounds": "Koordinaterna ligger utanför SMHI:s giltiga prognosområde.",
+      "invalid_coordinates": "Koordinaterna är ogiltiga.",
+      "unknown": "Oväntat fel vid validering. Kontrollera Home Assistant-loggen."
+    },
+    "abort": {
+      "already_configured": "SMHI är redan konfigurerad för dessa koordinater."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SMHI-alternativ",
+        "description": "Ändringar börjar gälla genom att integrationen laddas om automatiskt.",
+        "data": {
+          "forecast_timeseries": "Antal prognossteg",
+          "scan_interval": "Uppdateringsintervall i minuter",
+          "enable_comfort_sensors": "Aktivera komfortsensor (känns som-temperatur)",
+          "enable_frost_sensors": "Aktivera frostsensorer (risk % och binär)",
+          "enable_slippery_sensors": "Aktivera halksensorer (risk % och binär)",
+          "enable_impact_sensor": "Aktivera väderpåverkanssensor (svårighetsgrad %)",
+          "enable_practical_sensors": "Aktivera praktiska sensorer (kläder, sömn, träning)",
+          "enable_thermal_sensors": "Aktivera termisk komfortsensorer (3 omfattande index)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "api_problem": {
+        "name": "SMHI API-problem"
+      }
+    }
+  }
+}

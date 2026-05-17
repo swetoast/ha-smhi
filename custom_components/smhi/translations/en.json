@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SMHI",
+        "description": "Set up SMHI forecast. Home location is currently {home_latitude}, {home_longitude}. Disable Home location if you want to use custom coordinates.",
+        "data": {
+          "name": "Name",
+          "use_home_location": "Use Home Assistant Home location",
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      },
+      "confirm": {
+        "title": "Confirm SMHI setup",
+        "description": "SMHI responded successfully.\n\nName: {name}\nCoordinates: {latitude}, {longitude}\nNearest grid point: {grid_point}\nReference time: {reference_time}\nCreated time: {created_time}"
+      },
+      "reconfigure": {
+        "title": "Reconfigure SMHI",
+        "description": "Update coordinates or switch back to the Home Assistant Home location.",
+        "data": {
+          "name": "Name",
+          "use_home_location": "Use Home Assistant Home location",
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to SMHI. Try again later.",
+      "out_of_bounds": "The coordinates are outside the valid SMHI forecast area.",
+      "invalid_coordinates": "The coordinates are invalid.",
+      "unknown": "Unexpected error while validating setup. Check the Home Assistant logs."
+    },
+    "abort": {
+      "already_configured": "SMHI is already configured for these coordinates."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SMHI options",
+        "description": "Changes are applied by reloading the integration automatically.",
+        "data": {
+          "forecast_timeseries": "Number of forecast steps",
+          "scan_interval": "Update interval in minutes",
+          "enable_comfort_sensors": "Enable comfort sensor (feels like temperature)",
+          "enable_frost_sensors": "Enable frost sensors (risk % and binary)",
+          "enable_slippery_sensors": "Enable slippery sensors (risk % and binary)",
+          "enable_impact_sensor": "Enable weather impact sensor (severity %)",
+          "enable_practical_sensors": "Enable practical sensors (clothing, sleep, exercise)",
+          "enable_thermal_sensors": "Enable thermal comfort sensors (3 comprehensive indices)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "api_problem": {
+        "name": "SMHI API problem"
+      }
+    }
+  }
+}

@@ -266,3 +266,4 @@ Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index)
 ## Disclaimer
 
 Not affiliated with SMHI. Weather data provided by SMHI's open data API. For critical decisions, consult official weather warnings.
+
