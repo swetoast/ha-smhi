@@ -67,95 +67,76 @@ After setup, click Configure on the SMHI integration:
 
 ### Weather Entity
 
-**weather.smhi**
-- Current conditions with hourly forecasts
-- Temperature, pressure, humidity, wind speed, wind bearing
-- Cloud coverage, precipitation, visibility
+- **weather.smhi** - Current conditions with hourly forecasts
+  - Temperature, pressure, humidity, wind speed, wind bearing
+  - Cloud coverage, precipitation, visibility
 
 ### Core Sensors (Always Active)
 
-**sensor.smhi_precipitation** (mm)
-- Precipitation amount with ensemble forecasts
-- **Attributes**: precipitation_amount_mean_deterministic, precipitation_amount_mean, precipitation_amount_min, precipitation_amount_max, precipitation_amount_median, probability_of_precipitation, probability_of_frozen_precipitation, precipitation_frozen_part, predominant_precipitation_type_at_surface, precipitation_type_description
+- **sensor.smhi_precipitation** (mm) - Precipitation amount with ensemble forecasts
+  - Attributes: precipitation_amount_mean_deterministic, precipitation_amount_mean, precipitation_amount_min, precipitation_amount_max, precipitation_amount_median, probability_of_precipitation, probability_of_frozen_precipitation, precipitation_frozen_part, predominant_precipitation_type_at_surface, precipitation_type_description
 
-**sensor.smhi_clouds** (octas)
-- Cloud coverage in octas (0-8 scale)
-- **Attributes**: cloud_area_fraction, low_type_cloud_area_fraction, medium_type_cloud_area_fraction, high_type_cloud_area_fraction, cloud_base_altitude, cloud_top_altitude, cloud_area_fraction_percent
+- **sensor.smhi_clouds** (octas) - Cloud coverage in octas (0-8 scale)
+  - Attributes: cloud_area_fraction, low_type_cloud_area_fraction, medium_type_cloud_area_fraction, high_type_cloud_area_fraction, cloud_base_altitude, cloud_top_altitude, cloud_area_fraction_percent
 
-**sensor.smhi_thunderstorm_probability** (%)
-- Probability of thunderstorms
+- **sensor.smhi_thunderstorm_probability** (%) - Probability of thunderstorms
 
-**sensor.smhi_symbol_code**
-- SMHI weather symbol code (1-27)
-- **Attributes**: symbol_code, symbol_description, home_assistant_condition
+- **sensor.smhi_symbol_code** - SMHI weather symbol code (1-27)
+  - Attributes: symbol_code, symbol_description, home_assistant_condition
 
-**sensor.smhi_metadata**
-- API metadata and grid point information
-- **Attributes**: approved_time, created_time, reference_time, grid_point, available_times_count
+- **sensor.smhi_metadata** - API metadata and grid point information
+  - Attributes: approved_time, created_time, reference_time, grid_point, available_times_count
 
-**binary_sensor.smhi_api_problem**
-- API health status (ON when issues detected)
-- **Attributes**: last_success, last_error
+- **binary_sensor.smhi_api_problem** - API health status (ON when issues detected)
+  - Attributes: last_success, last_error
 
 ### Comfort Sensors
 
-**sensor.smhi_feels_like** (°C)
-- Apparent temperature combining wind chill and heat index
-- **Attributes**: wind_chill, heat_index, actual_temperature, dew_point
+- **sensor.smhi_feels_like** (°C) - Apparent temperature combining wind chill and heat index
+  - Attributes: wind_chill, heat_index, actual_temperature, dew_point
 
 ### Frost Sensors
 
-**sensor.smhi_frost_risk** (%)
-- Frost probability from 0-100%
-- **Attributes**: current_temperature, current_dew_point, frost_possible
+- **sensor.smhi_frost_risk** (%) - Frost probability from 0-100%
+  - Attributes: current_temperature, current_dew_point, frost_possible
 
-**binary_sensor.smhi_frost_possible**
-- ON when frost conditions likely
-- **Attributes**: temperature, dew_point, humidity
+- **binary_sensor.smhi_frost_possible** - ON when frost conditions likely
+  - Attributes: temperature, dew_point, humidity
 
 ### Slippery Sensors
 
-**sensor.smhi_slippery_risk** (%)
-- Ice/snow road danger from 0-100%
-- **Attributes**: current_temperature, conditions_detected
+- **sensor.smhi_slippery_risk** (%) - Ice/snow road danger from 0-100%
+  - Attributes: current_temperature, conditions_detected
 
-**binary_sensor.smhi_slippery_conditions**
-- ON when roads likely slippery
-- **Attributes**: temperature, precipitation_frozen_part, precipitation_amount
+- **binary_sensor.smhi_slippery_conditions** - ON when roads likely slippery
+  - Attributes: temperature, precipitation_frozen_part, precipitation_amount
 
 ### Impact Sensor
 
-**sensor.smhi_weather_impact** (%)
-- Overall weather severity score 0-100%
-- **Attributes**: current_temperature, current_wind_speed, current_precipitation, current_visibility, current_thunderstorm_probability
+- **sensor.smhi_weather_impact** (%) - Overall weather severity score 0-100%
+  - Attributes: current_temperature, current_wind_speed, current_precipitation, current_visibility, current_thunderstorm_probability
 
 ### Practical Sensors
 
-**sensor.smhi_clothing_insulation** (CLO)
-- Recommended clothing insulation
-- **Attributes**: clothing_description ("Winter jacket and layers", "Light jacket", "Shorts and t-shirt")
+- **sensor.smhi_clothing_insulation** (CLO) - Recommended clothing insulation
+  - Attributes: clothing_description ("Winter jacket and layers", "Light jacket", "Shorts and t-shirt")
 
-**sensor.smhi_sleep_comfort** (%)
-- Sleep comfort score based on bedroom temperature and humidity
-- **Attributes**: ideal_range, comfort_level ("Excellent", "Good", "Fair", "Poor")
+- **sensor.smhi_sleep_comfort** (%) - Sleep comfort score based on bedroom temperature and humidity
+  - Attributes: ideal_range, comfort_level ("Excellent", "Good", "Fair", "Poor")
 
-**sensor.smhi_exercise_safety** (%)
-- Outdoor exercise safety score
-- **Attributes**: safety_category, feels_like_temperature
+- **sensor.smhi_exercise_safety** (%) - Outdoor exercise safety score
+  - Attributes: safety_category, feels_like_temperature
 
 ### Thermal Comfort Sensors
 
-**sensor.smhi_thermal_comfort** (°C)
-- Auto-selected thermal comfort index based on temperature
-- **Attributes**: actual_temperature, heat_index, humidex, thoms_discomfort, seasonal_scharlau, seasonal_scharlau_perception, current_season (Winter/Spring/Summer/Autumn), summer_simmer, summer_simmer_perception, relative_strain, relative_strain_perception, thoms_perception, active_index
+- **sensor.smhi_thermal_comfort** (°C) - Auto-selected thermal comfort index based on temperature
+  - Attributes: actual_temperature, heat_index, humidex, thoms_discomfort, seasonal_scharlau, seasonal_scharlau_perception, current_season (Winter/Spring/Summer/Autumn), summer_simmer, summer_simmer_perception, relative_strain, relative_strain_perception, thoms_perception, active_index
 
-**sensor.smhi_humidity_analysis** (°C)
-- Dew point temperature with humidity metrics
-- **Attributes**: dew_point, dew_point_perception, absolute_humidity (g/m³), relative_humidity, temperature, spread, frost_point, moist_air_enthalpy (kJ/kg), humidity_comfort
+- **sensor.smhi_humidity_analysis** (°C) - Dew point temperature with humidity metrics
+  - Attributes: dew_point, dew_point_perception, absolute_humidity (g/m³), relative_humidity, temperature, spread, frost_point, moist_air_enthalpy (kJ/kg), humidity_comfort
 
-**sensor.smhi_heat_stress_level** (%)
-- Heat stress assessment 0-100%
-- **Attributes**: risk_level ("Safe", "Caution", "Extreme Caution", "Danger", "Extreme Danger"), recommendation, current_temperature, current_humidity
+- **sensor.smhi_heat_stress_level** (%) - Heat stress assessment 0-100%
+  - Attributes: risk_level ("Safe", "Caution", "Extreme Caution", "Danger", "Extreme Danger"), recommendation, current_temperature, current_humidity
 
 ## Thermal Comfort Details
 
@@ -240,3 +221,4 @@ Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index)
 ## Disclaimer
 
 Not affiliated with SMHI. Weather data provided by SMHI's open data API. For critical decisions, consult official weather warnings.
+
