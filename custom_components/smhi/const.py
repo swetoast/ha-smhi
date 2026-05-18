@@ -44,6 +44,9 @@ ATTR_RAW_FORECAST = "raw_forecast"
 MISSING_VALUE = 9999
 PRECIP_FROZEN_NO_PRECIP_VALUE = -9
 
+DAYTIME_START_HOUR = 6
+DAYTIME_END_HOUR = 18
+
 PARAMETER_FALLBACK: list[dict] = [
     {"name": "air_temperature", "shortName": "2t", "description": "Air temperature at 2 metres height.", "levelType": "hl", "level": 2, "unit": "Cel", "missingValue": 9999},
     {"name": "wind_from_direction", "shortName": "wd", "description": "Wind from direction at 10 metre.", "levelType": "hl", "level": 10, "unit": "degree", "missingValue": 9999},

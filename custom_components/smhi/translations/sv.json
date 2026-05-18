@@ -15,6 +15,26 @@
         "title": "Bekräfta SMHI-konfiguration",
         "description": "SMHI svarade korrekt.\n\nNamn: {name}\nKoordinater: {latitude}, {longitude}\nNärmaste gridpunkt: {grid_point}\nReferenstid: {reference_time}\nSkapad tid: {created_time}"
       },
+      "sensors": {
+        "title": "Välj sensorgrupper",
+        "description": "Välj vilka valfria sensorgrupper som ska aktiveras.\n\n**Kärnsensorer** (alltid aktiverade): Nederbörd, Moln, Åskprobabilitet, Symbolkod, Metadata\n\n**Valfria sensorer** (beräknade från SMHI-data):\n• Komfort: Upplevd temperatur (känns som)\n• Frost: Riskbedömning och frostdetektering\n• Halka: Varningar för is/snö på vägar\n• Påverkan: Övergripande vädersvårighetsgrad\n• Praktiskt: Rekommendationer för kläder/sömn/träning\n• Termisk: Avancerade komfortindex (värmeindex, humidex, daggpunkt)\n\n⚠️ **Ansvarsfriskrivning**: Valfria sensorer är beräknade värden från SMHI väderdata. De är inte officiella SMHI-prognoser.",
+        "data": {
+          "enable_comfort_sensors": "Komfortsensor",
+          "enable_frost_sensors": "Frostsensorer",
+          "enable_slippery_sensors": "Halksensorer",
+          "enable_impact_sensor": "Påverkanssensor",
+          "enable_practical_sensors": "Praktiska sensorer",
+          "enable_thermal_sensors": "Termiska sensorer"
+        },
+        "data_description": {
+          "enable_comfort_sensors": "Känns som-temperatur som kombinerar vindavkylning och värmeindex",
+          "enable_frost_sensors": "Frostriskprocent (0-100%) och binär frostdetekteringssensor",
+          "enable_slippery_sensors": "Väghalka is/snö riskprocent (0-100%) och binär halksensor",
+          "enable_impact_sensor": "Övergripande vädersvårighetsgrad (0-100%) baserad på temperatur, vind, nederbörd, sikt",
+          "enable_practical_sensors": "Klädesisolering (CLO), sömnkomfort (%) och träningssäkerhet (%) rekommendationer",
+          "enable_thermal_sensors": "Värmeindex, humidex, daggpunktsanalys och värmestressbedömning"
+        }
+      },
       "reconfigure": {
         "title": "Konfigurera om SMHI",
         "description": "Uppdatera koordinater eller växla tillbaka till Home Assistant Hem-position.",

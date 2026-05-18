@@ -28,6 +28,7 @@ from .const import (
     CONF_ENABLE_PRACTICAL_SENSORS,
     CONF_ENABLE_SLIPPERY_SENSORS,
     CONF_ENABLE_THERMAL_SENSORS,
+    CONF_NAME,
     DOMAIN,
 )
 from .helpers import clean_value, condition_from_symbol, current_data_from_payload, octas_to_percent, ptype_description, symbol_description
@@ -598,13 +599,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 class SmhiBaseSensor(CoordinatorEntity, SensorEntity):
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
-    def _common_attrs(self) -> dict[str, Any]:
+    @property
+    def device_info(self):
         return {
-            ATTR_STALE: not self.coordinator.last_update_success,
-            ATTR_LAST_SUCCESS: self.coordinator.last_success,
-            ATTR_LAST_ERROR: self.coordinator.last_error,
+            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
+            "name": self.coordinator.entry.data.get(CONF_NAME, "SMHI"),
+            "manufacturer": "SMHI",
+            "model": "Open Data forecast",
+            "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
         }
 
     @property
@@ -613,7 +617,7 @@ class SmhiBaseSensor(CoordinatorEntity, SensorEntity):
 
 
 class SmhiPrecipitationSensor(SmhiBaseSensor):
-    _attr_name = "SMHI Precipitation"
+    _attr_name = "Precipitation"
     _attr_native_unit_of_measurement = UnitOfPrecipitationDepth.MILLIMETERS
     _attr_device_class = SensorDeviceClass.PRECIPITATION
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -633,7 +637,7 @@ class SmhiPrecipitationSensor(SmhiBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = _data(self.coordinator)
-        attrs = self._common_attrs()
+        attrs = {}
         for key in (
             "precipitation_amount_mean_deterministic",
             "precipitation_amount_mean",
@@ -658,9 +662,10 @@ class SmhiPrecipitationSensor(SmhiBaseSensor):
 
 
 class SmhiCloudsSensor(SmhiBaseSensor):
-    _attr_name = "SMHI Clouds"
+    _attr_name = "Clouds"
     _attr_native_unit_of_measurement = "octas"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:clouds"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
@@ -673,7 +678,7 @@ class SmhiCloudsSensor(SmhiBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = _data(self.coordinator)
-        attrs = self._common_attrs()
+        attrs = {}
         for key in (
             "cloud_area_fraction",
             "low_type_cloud_area_fraction",
@@ -690,9 +695,10 @@ class SmhiCloudsSensor(SmhiBaseSensor):
 
 
 class SmhiThunderstormProbabilitySensor(SmhiBaseSensor):
-    _attr_name = "SMHI Thunderstorm Probability"
+    _attr_name = "Thunderstorm Probability"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:flash-alert"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
@@ -705,7 +711,7 @@ class SmhiThunderstormProbabilitySensor(SmhiBaseSensor):
 
 
 class SmhiSymbolCodeSensor(SmhiBaseSensor):
-    _attr_name = "SMHI Symbol Code"
+    _attr_name = "Symbol Code"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator) -> None:
@@ -717,9 +723,30 @@ class SmhiSymbolCodeSensor(SmhiBaseSensor):
         return clean_value(_data(self.coordinator).get("symbol_code"), parameter="symbol_code")
 
     @property
+    def icon(self) -> str:
+        """Return dynamic icon based on weather condition."""
+        condition = condition_from_symbol(_data(self.coordinator))
+        
+        # Map conditions to MDI icons
+        icon_map = {
+            "sunny": "mdi:weather-sunny",
+            "partlycloudy": "mdi:weather-partly-cloudy",
+            "cloudy": "mdi:weather-cloudy",
+            "fog": "mdi:weather-fog",
+            "rainy": "mdi:weather-rainy",
+            "pouring": "mdi:weather-pouring",
+            "lightning": "mdi:weather-lightning",
+            "lightning-rainy": "mdi:weather-lightning-rainy",
+            "snowy": "mdi:weather-snowy",
+            "snowy-rainy": "mdi:weather-snowy-rainy",
+        }
+        
+        return icon_map.get(condition, "mdi:weather-cloudy")
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = _data(self.coordinator)
-        attrs = self._common_attrs()
+        attrs = {}
         attrs["symbol_code"] = self.native_value
         attrs["symbol_description"] = symbol_description(data.get("symbol_code"))
         attrs["home_assistant_condition"] = condition_from_symbol(data)
@@ -727,8 +754,9 @@ class SmhiSymbolCodeSensor(SmhiBaseSensor):
 
 
 class SmhiMetadataSensor(SmhiBaseSensor):
-    _attr_name = "SMHI Metadata"
+    _attr_name = "Metadata"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:information"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
@@ -743,7 +771,7 @@ class SmhiMetadataSensor(SmhiBaseSensor):
         payload = self.coordinator.current_payload()
         coords = (payload.get("geometry") or {}).get("coordinates")
         grid = {"lon": coords[0], "lat": coords[1]} if isinstance(coords, list) and len(coords) >= 2 else None
-        attrs = self._common_attrs()
+        attrs = {}
         attrs.update({
             ATTR_APPROVED_TIME: self.coordinator.approved_time,
             ATTR_CREATED_TIME: payload.get("createdTime"),
@@ -756,7 +784,7 @@ class SmhiMetadataSensor(SmhiBaseSensor):
 
 class SmhiFeelsLikeSensor(SmhiBaseSensor):
     """Sensor for feels-like temperature."""
-    _attr_name = "SMHI Feels Like"
+    _attr_name = "Comfort: Feels Like"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -784,21 +812,19 @@ class SmhiFeelsLikeSensor(SmhiBaseSensor):
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is not None and wind is not None and humidity is not None:
             wind_kmh = wind * 3.6
             wind_chill = calculate_wind_chill(temp, wind_kmh)
             heat_index = calculate_heat_index(temp, humidity)
             attrs["wind_chill"] = round(wind_chill, 1) if wind_chill is not None else None
             attrs["heat_index"] = round(heat_index, 1) if heat_index is not None else None
-            attrs["actual_temperature"] = temp
-            attrs["dew_point"] = round(calculate_dew_point(temp, humidity), 1)
         return attrs
 
 
 class SmhiFrostRiskSensor(SmhiBaseSensor):
     """Sensor for frost risk percentage."""
-    _attr_name = "SMHI Frost Risk"
+    _attr_name = "Frost: Risk"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:snowflake-alert"
@@ -825,18 +851,17 @@ class SmhiFrostRiskSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is not None and humidity is not None:
             dew_point = calculate_dew_point(temp, humidity)
             attrs["current_temperature"] = temp
             attrs["current_dew_point"] = round(dew_point, 1)
-            attrs["frost_possible"] = temp <= 2 or (temp <= 4 and dew_point <= 0)
         return attrs
 
 
 class SmhiSlipperyRiskSensor(SmhiBaseSensor):
     """Sensor for slippery conditions risk."""
-    _attr_name = "SMHI Slippery Risk"
+    _attr_name = "Slippery: Risk"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:car-brake-alert"
@@ -864,7 +889,7 @@ class SmhiSlipperyRiskSensor(SmhiBaseSensor):
         frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
-        attrs = self._common_attrs()
+        attrs = {}
         attrs["current_temperature"] = temp
         
         is_slippery = False
@@ -880,7 +905,7 @@ class SmhiSlipperyRiskSensor(SmhiBaseSensor):
 
 class SmhiWeatherImpactSensor(SmhiBaseSensor):
     """Sensor for overall weather impact score."""
-    _attr_name = "SMHI Weather Impact"
+    _attr_name = "Impact: Severity"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:alert-circle"
@@ -906,7 +931,7 @@ class SmhiWeatherImpactSensor(SmhiBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = _data(self.coordinator)
-        attrs = self._common_attrs()
+        attrs = {}
         attrs["current_temperature"] = clean_value(data.get("air_temperature"), parameter="air_temperature")
         attrs["current_wind_speed"] = clean_value(data.get("wind_speed"), parameter="wind_speed")
         attrs["current_precipitation"] = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
@@ -917,7 +942,7 @@ class SmhiWeatherImpactSensor(SmhiBaseSensor):
 
 class SmhiClothingInsulationSensor(SmhiBaseSensor):
     """Sensor for recommended clothing insulation in CLO units."""
-    _attr_name = "SMHI Clothing Insulation"
+    _attr_name = "Practical: Clothing"
     _attr_native_unit_of_measurement = "CLO"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:hanger"
@@ -943,7 +968,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is not None and wind is not None:
             clo = calculate_clo_value(temp, wind)
             
@@ -967,7 +992,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
 
 class SmhiSleepComfortSensor(SmhiBaseSensor):
     """Sensor for sleep comfort score."""
-    _attr_name = "SMHI Sleep Comfort"
+    _attr_name = "Practical: Sleep"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:bed"
@@ -993,7 +1018,7 @@ class SmhiSleepComfortSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is not None and humidity is not None:
             score = calculate_sleep_comfort(temp, humidity)
             attrs["ideal_range"] = "16-19°C"
@@ -1014,7 +1039,7 @@ class SmhiSleepComfortSensor(SmhiBaseSensor):
 
 class SmhiExerciseSafetySensor(SmhiBaseSensor):
     """Sensor for outdoor exercise safety index."""
-    _attr_name = "SMHI Exercise Safety"
+    _attr_name = "Practical: Exercise"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:run"
@@ -1043,7 +1068,7 @@ class SmhiExerciseSafetySensor(SmhiBaseSensor):
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is not None and wind is not None and humidity is not None:
             score, category = calculate_exercise_safety(temp, wind, humidity)
             feels_like = calculate_feels_like(temp, wind, humidity)
@@ -1056,7 +1081,7 @@ class SmhiExerciseSafetySensor(SmhiBaseSensor):
 
 class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
     """Comprehensive thermal comfort sensor - auto-selects most relevant index."""
-    _attr_name = "SMHI Thermal Comfort"
+    _attr_name = "Thermal: Comfort"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -1105,11 +1130,9 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is None or humidity is None:
             return attrs
-        
-        attrs["actual_temperature"] = temp
         
         # Always calculate all indices for reference
         attrs["heat_index"] = round(hi, 1) if (hi := calculate_heat_index(temp, humidity)) is not None else None
@@ -1154,7 +1177,7 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
 
 class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
     """Comprehensive humidity analysis sensor."""
-    _attr_name = "SMHI Humidity Analysis"
+    _attr_name = "Thermal: Humidity"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -1182,7 +1205,7 @@ class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is None or humidity is None:
             return attrs
         
@@ -1193,8 +1216,6 @@ class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
         attrs["dew_point_perception"] = get_dew_point_perception(dew_point)
         attrs["absolute_humidity"] = round(abs_humidity, 2)
         attrs["absolute_humidity_unit"] = "g/m³"
-        attrs["relative_humidity"] = humidity
-        attrs["temperature"] = temp
         attrs["spread"] = round(temp - dew_point, 1)
         
         frost_point = calculate_frost_point(temp, humidity)
@@ -1224,7 +1245,7 @@ class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
 
 class SmhiHeatStressLevelSensor(SmhiBaseSensor):
     """Comprehensive heat stress assessment sensor."""
-    _attr_name = "SMHI Heat Stress Level"
+    _attr_name = "Thermal: Heat Stress"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:heat-wave"
@@ -1274,7 +1295,7 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        attrs = self._common_attrs()
+        attrs = {}
         if temp is None or humidity is None:
             return attrs
         
@@ -1300,10 +1321,6 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
             attrs["recommendation"] = "Take breaks, drink water"
         else:
             attrs["recommendation"] = "Normal activity safe"
-        
-        # Reference values (individual indices available in thermal_comfort sensor)
-        attrs["current_temperature"] = temp
-        attrs["current_humidity"] = humidity
         
         return attrs
 

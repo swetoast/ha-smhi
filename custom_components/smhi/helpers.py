@@ -56,3 +56,57 @@ def current_data_from_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 def grid_point_from_payload(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     coords = ((payload or {}).get("geometry") or {}).get("coordinates")
     return {"lon": coords[0], "lat": coords[1]} if isinstance(coords, list) and len(coords) >= 2 else None
+
+
+def parse_time(time_str: Any):
+    """Parse ISO time string to datetime."""
+    if not time_str:
+        return None
+    try:
+        return dt_util.parse_datetime(time_str)
+    except (TypeError, ValueError):
+        return None
+
+
+def avg(values, *, parameter: str | None = None):
+    """Calculate average of cleaned values."""
+    cleaned = [clean_value(v, parameter=parameter) for v in values]
+    cleaned = [v for v in cleaned if v is not None]
+    if not cleaned:
+        return None
+    return sum(cleaned) / len(cleaned)
+
+
+def min_value(values, *, parameter: str | None = None):
+    """Get minimum of cleaned values."""
+    cleaned = [clean_value(v, parameter=parameter) for v in values]
+    cleaned = [v for v in cleaned if v is not None]
+    if not cleaned:
+        return None
+    return min(cleaned)
+
+
+def max_value(values, *, parameter: str | None = None):
+    """Get maximum of cleaned values."""
+    cleaned = [clean_value(v, parameter=parameter) for v in values]
+    cleaned = [v for v in cleaned if v is not None]
+    if not cleaned:
+        return None
+    return max(cleaned)
+
+
+def sum_value(values):
+    """Sum cleaned values."""
+    cleaned = [v for v in values if v is not None]
+    if not cleaned:
+        return None
+    return sum(cleaned)
+
+
+def most_common(values):
+    """Get most common value from iterable."""
+    cleaned = [v for v in values if v is not None]
+    if not cleaned:
+        return None
+    from collections import Counter
+    return Counter(cleaned).most_common(1)[0][0]

@@ -15,6 +15,26 @@
         "title": "Confirm SMHI setup",
         "description": "SMHI responded successfully.\n\nName: {name}\nCoordinates: {latitude}, {longitude}\nNearest grid point: {grid_point}\nReference time: {reference_time}\nCreated time: {created_time}"
       },
+      "sensors": {
+        "title": "Choose sensor groups",
+        "description": "Select which optional sensor groups to enable.\n\n**Core sensors** (always enabled): Precipitation, Clouds, Thunderstorm Probability, Symbol Code, Metadata\n\n**Optional sensors** (calculated from SMHI data):\n• Comfort: Apparent temperature (feels like)\n• Frost: Risk assessment and frost detection\n• Slippery: Ice/snow road condition alerts\n• Impact: Overall weather severity score\n• Practical: Clothing/sleep/exercise recommendations\n• Thermal: Advanced comfort indices (heat index, humidex, dew point)\n\n⚠️ **Disclaimer**: Optional sensors are calculated values derived from SMHI weather data. They are not official SMHI forecasts.",
+        "data": {
+          "enable_comfort_sensors": "Comfort sensor",
+          "enable_frost_sensors": "Frost sensors",
+          "enable_slippery_sensors": "Slippery sensors",
+          "enable_impact_sensor": "Impact sensor",
+          "enable_practical_sensors": "Practical sensors",
+          "enable_thermal_sensors": "Thermal sensors"
+        },
+        "data_description": {
+          "enable_comfort_sensors": "Feels-like temperature combining wind chill and heat index",
+          "enable_frost_sensors": "Frost risk percentage (0-100%) and binary frost detection sensor",
+          "enable_slippery_sensors": "Road ice/snow risk percentage (0-100%) and binary slippery conditions sensor",
+          "enable_impact_sensor": "Overall weather severity score (0-100%) based on temperature, wind, precipitation, visibility",
+          "enable_practical_sensors": "Clothing insulation (CLO), sleep comfort (%), and exercise safety (%) recommendations",
+          "enable_thermal_sensors": "Heat index, humidex, dew point analysis, and heat stress assessment"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure SMHI",
         "description": "Update coordinates or switch back to the Home Assistant Home location.",

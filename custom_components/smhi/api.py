@@ -18,6 +18,11 @@ class SmhiApi:
     async def get_point_forecast(self, latitude: float, longitude: float, timeseries: int | None = None) -> dict[str, Any]:
         query = {"timeseries": str(timeseries)} if timeseries is not None else None
         return await self._get_json(f"geotype/point/lon/{longitude:.6f}/lat/{latitude:.6f}/data.json", query)
+    
+    async def validate_point(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """Validate coordinates by fetching forecast data."""
+        return await self.get_point_forecast(latitude, longitude)
+    
     async def get_parameters(self) -> dict[str, Any]:
         return await self._get_json("parameter.json")
     async def get_times(self) -> dict[str, Any]:
