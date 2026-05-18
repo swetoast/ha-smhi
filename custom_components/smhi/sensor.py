@@ -34,6 +34,105 @@ from .const import (
 from .helpers import clean_value, condition_from_symbol, current_data_from_payload, octas_to_percent, ptype_description, symbol_description
 
 
+# Translation dictionaries for sensor attributes
+TRANSLATIONS = {
+    "en": {
+        # Exercise categories
+        "ideal": "Ideal",
+        "safe": "Safe",
+        "cool": "Cool",
+        "moderate_risk": "Moderate Risk",
+        "caution_hot": "Caution - Hot",
+        "caution_cold": "Caution - Cold",
+        "high_risk": "High Risk",
+        "extreme_risk": "Extreme Risk",
+        "extreme_danger": "Extreme Danger",
+        "high_dehydration_risk": "High Dehydration Risk",
+        "extreme_dehydration_risk": "Extreme Dehydration Risk",
+        "caution_hydration": "Caution - Hydration",
+        "monitor_hydration": "Monitor Hydration",
+        "dry_air_caution": "Dry Air Caution",
+        # Risk levels
+        "caution": "Caution",
+        "extreme_caution": "Extreme Caution",
+        "danger": "Danger",
+        # Recommendations
+        "normal_activity_safe": "Normal activity safe",
+        "take_breaks_drink_water": "Take breaks, drink water",
+        "limit_outdoor_activity": "Limit outdoor activity, stay hydrated",
+        "avoid_outdoor_activity": "Avoid outdoor activity",
+        # Thermal indices
+        "heat_index": "Heat Index",
+        "summer_comfort": "Summer Comfort",
+        "thoms_discomfort": "Thoms Discomfort",
+        "actual_temperature": "Actual Temperature",
+        # Humidity levels
+        "oppressive": "Oppressive",
+        "very_humid": "Very Humid",
+        "humid": "Humid",
+        "comfortable": "Comfortable",
+        "pleasant": "Pleasant",
+        "dry": "Dry",
+        "very_dry": "Very Dry",
+        "comfortable_but_humid": "Comfortable but humid",
+        "somewhat_uncomfortable": "Somewhat uncomfortable",
+        "extremely_uncomfortable": "Extremely uncomfortable",
+        "severely_high": "Severely high",
+    },
+    "sv": {
+        # Exercise categories
+        "ideal": "Idealt",
+        "safe": "Säkert",
+        "cool": "Svalt",
+        "moderate_risk": "Måttlig risk",
+        "caution_hot": "Varning - Varmt",
+        "caution_cold": "Varning - Kallt",
+        "high_risk": "Hög risk",
+        "extreme_risk": "Extrem risk",
+        "extreme_danger": "Extrem fara",
+        "high_dehydration_risk": "Hög dehydreringsrisk",
+        "extreme_dehydration_risk": "Extrem dehydreringsrisk",
+        "caution_hydration": "Varning - Vätskebalans",
+        "monitor_hydration": "Övervaka vätskebalans",
+        "dry_air_caution": "Varning - Torr luft",
+        # Risk levels
+        "caution": "Varning",
+        "extreme_caution": "Extrem försiktighet",
+        "danger": "Fara",
+        # Recommendations
+        "normal_activity_safe": "Normal aktivitet säker",
+        "take_breaks_drink_water": "Ta pauser, drick vatten",
+        "limit_outdoor_activity": "Begränsa utomhusaktivitet, håll dig hydrerad",
+        "avoid_outdoor_activity": "Undvik utomhusaktivitet",
+        # Thermal indices
+        "heat_index": "Värmeindex",
+        "summer_comfort": "Sommarkomfort",
+        "thoms_discomfort": "Thoms obehag",
+        "actual_temperature": "Verklig temperatur",
+        # Humidity levels
+        "oppressive": "Kvävande",
+        "very_humid": "Mycket fuktigt",
+        "humid": "Fuktigt",
+        "comfortable": "Bekvämt",
+        "pleasant": "Behagligt",
+        "dry": "Torrt",
+        "very_dry": "Mycket torrt",
+        "comfortable_but_humid": "Bekvämt men fuktigt",
+        "somewhat_uncomfortable": "Något obekvämt",
+        "extremely_uncomfortable": "Extremt obekvämt",
+        "severely_high": "Extremt hög",
+    }
+}
+
+
+def _translate(key: str, hass: HomeAssistant) -> str:
+    """Get translated text based on Home Assistant language."""
+    language = hass.config.language
+    # Default to Swedish if language is sv, otherwise English
+    lang = "sv" if language == "sv" else "en"
+    return TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
+
+
 def _payload(coordinator) -> dict[str, Any]:
     return coordinator.current_payload()
 
@@ -83,89 +182,159 @@ def calculate_feels_like(temp_c: float, wind_ms: float, humidity: float) -> floa
 
 
 def calculate_frost_risk(temp_c: float, humidity: float, dew_point: float) -> int:
-    """Calculate frost risk (0-100%)."""
+    """Calculate frost risk (0-100%) with sigmoid curve for smooth transitions."""
+    import math
+    
+    # No risk above 5°C
     if temp_c > 5:
         return 0
-    if temp_c <= 0:
-        return 100
     
-    risk = 0
-    risk += max(0, (5 - temp_c) / 5 * 50)
+    # Base risk from temperature using sigmoid curve
+    # Center at 2°C, steep transition around freezing
+    temp_risk = 100 / (1 + math.exp((temp_c - 2) * 1.5))
     
-    if dew_point <= 0:
-        risk += 30
-    elif dew_point <= 2:
-        risk += 20
+    # Dew point spread factor (temp - dew_point)
+    # Smaller spread = higher condensation risk
+    spread = temp_c - dew_point
     
+    if spread < 1:
+        # Very close to dew point = high condensation risk
+        spread_multiplier = 1.3
+    elif spread < 2:
+        spread_multiplier = 1.15
+    elif spread < 3:
+        spread_multiplier = 1.05
+    else:
+        spread_multiplier = 1.0
+    
+    # Humidity bonus (higher humidity = more moisture for frost)
     if humidity > 80:
-        risk += 20
+        humidity_bonus = 15
+    elif humidity > 70:
+        humidity_bonus = 10
     elif humidity > 60:
-        risk += 10
+        humidity_bonus = 5
+    else:
+        humidity_bonus = 0
     
-    return min(100, int(risk))
+    # Calculate final risk
+    risk = (temp_risk * spread_multiplier) + humidity_bonus
+    
+    return min(100, max(0, int(risk)))
 
 
 def calculate_slippery_risk(temp_c: float, precip_frozen: float | None, precip_amount: float | None) -> int:
-    """Calculate slippery conditions risk (0-100%)."""
+    """Calculate slippery conditions risk (0-100%) with peak danger at 0°C."""
+    # No risk outside dangerous temperature range
     if temp_c < -10 or temp_c > 5:
         return 0
     
-    risk = 0
+    # Base risk from distance to 0°C (most dangerous point)
+    # Peak danger at 0°C where ice forms/melts repeatedly
+    distance_from_zero = abs(temp_c)
     
-    if -3 <= temp_c <= 2:
-        risk += 40
-    elif -5 <= temp_c <= 3:
-        risk += 25
+    if distance_from_zero <= 1:
+        # Within 1°C of freezing = very high base risk
+        temp_risk = 50
+    elif distance_from_zero <= 2:
+        temp_risk = 40
+    elif distance_from_zero <= 3:
+        temp_risk = 30
+    elif distance_from_zero <= 5:
+        temp_risk = 20
+    else:
+        temp_risk = 10
     
-    if precip_frozen is not None and precip_frozen > 0.3:
-        risk += 30
-    elif precip_frozen is not None and precip_frozen > 0.1:
-        risk += 15
+    # Frozen precipitation factor (30% weight)
+    frozen_risk = 0
+    if precip_frozen is not None:
+        if precip_frozen > 0.7:
+            frozen_risk = 30
+        elif precip_frozen > 0.5:
+            frozen_risk = 25
+        elif precip_frozen > 0.3:
+            frozen_risk = 20
+        elif precip_frozen > 0.1:
+            frozen_risk = 10
     
-    if precip_amount is not None and precip_amount > 0.1:
-        risk += 30
-    elif precip_amount is not None and precip_amount > 0:
-        risk += 15
+    # Precipitation intensity factor (20% weight)
+    precip_risk = 0
+    if precip_amount is not None:
+        if precip_amount > 2:
+            precip_risk = 20
+        elif precip_amount > 1:
+            precip_risk = 15
+        elif precip_amount > 0.5:
+            precip_risk = 10
+        elif precip_amount > 0.1:
+            precip_risk = 5
     
-    return min(100, int(risk))
+    total_risk = temp_risk + frozen_risk + precip_risk
+    return min(100, max(0, int(total_risk)))
 
 
 def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None, 
                             visibility: float | None, thunder_prob: float | None) -> int:
-    """Calculate overall weather impact score (0-100)."""
+    """Calculate overall weather impact score (0-100) with danger-prioritized weighting."""
     impact = 0
     
-    if temp_c < -15:
-        impact += 30
-    elif temp_c < -5:
-        impact += 15
-    elif temp_c > 30:
-        impact += 20
-    elif temp_c > 35:
-        impact += 30
-    
+    # High wind (40% weight) - most dangerous factor
     wind_kmh = wind_ms * 3.6
-    if wind_kmh > 50:
-        impact += 25
-    elif wind_kmh > 30:
-        impact += 15
+    if wind_kmh > 25:  # Storm force (>25 m/s = 90 km/h)
+        impact += 40
+    elif wind_kmh > 20:  # Very strong
+        impact += 32
+    elif wind_kmh > 15:  # Strong
+        impact += 24
+    elif wind_kmh > 10:  # Fresh
+        impact += 12
     
-    if precip is not None and precip > 10:
-        impact += 20
-    elif precip is not None and precip > 5:
+    # Heavy precipitation (30% weight)
+    if precip is not None:
+        if precip > 10:  # Very heavy
+            impact += 30
+        elif precip > 5:  # Heavy
+            impact += 22
+        elif precip > 2:  # Moderate
+            impact += 15
+        elif precip > 0.5:  # Light
+            impact += 8
+    
+    # Low visibility (20% weight) - safety critical
+    if visibility is not None:
+        if visibility < 0.5:  # Very poor
+            impact += 20
+        elif visibility < 1:  # Poor
+            impact += 16
+        elif visibility < 5:  # Moderate
+            impact += 10
+        elif visibility < 10:  # Reduced
+            impact += 5
+    
+    # Temperature extremes (10% weight) - adjusted for Swedish climate
+    if temp_c < -25:  # Extreme cold (dangerous in Sweden)
         impact += 10
-    
-    if visibility is not None and visibility < 1:
-        impact += 15
-    elif visibility is not None and visibility < 5:
-        impact += 5
-    
-    if thunder_prob is not None and thunder_prob > 0.5:
-        impact += 20
-    elif thunder_prob is not None and thunder_prob > 0.3:
+    elif temp_c < -15:  # Very cold (common in northern Sweden)
+        impact += 7
+    elif temp_c < -10:  # Cold (normal winter)
+        impact += 4
+    elif temp_c > 30:  # Extreme heat for Sweden
         impact += 10
+    elif temp_c > 27:  # Very hot for Sweden
+        impact += 7
+    elif temp_c > 25:  # Hot for Swedish standards
+        impact += 4
     
-    return min(100, int(impact))
+    # Thunderstorm bonus (adds to total, not weighted)
+    if thunder_prob is not None:
+        if thunder_prob > 0.7:
+            impact += 15
+        elif thunder_prob > 0.5:
+            impact += 10
+        elif thunder_prob > 0.3:
+            impact += 5
+    
+    return min(100, max(0, int(impact)))
 
 
 def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
@@ -201,76 +370,133 @@ def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
 
 
 def calculate_sleep_comfort(temp_c: float, humidity: float) -> int:
-    """Calculate sleep comfort score (0-100)."""
+    """Calculate sleep comfort score (0-100) with enhanced humidity considerations."""
+    # Optimal sleep temperature: 16-19°C
     ideal_temp = 17.5
     temp_range = 1.5
     
+    # Temperature score calculation
     temp_score = 100
     temp_diff = abs(temp_c - ideal_temp)
     
     if temp_diff <= temp_range:
+        # Perfect range
         temp_score = 100
     elif temp_diff <= 3:
+        # Good range
         temp_score = 100 - ((temp_diff - temp_range) / 1.5) * 30
     elif temp_diff <= 5:
+        # Acceptable range
         temp_score = 70 - ((temp_diff - 3) / 2) * 30
     elif temp_diff <= 8:
+        # Poor range
         temp_score = 40 - ((temp_diff - 5) / 3) * 30
     else:
+        # Very poor
         temp_score = 10 - min(10, (temp_diff - 8) * 2)
     
+    # Humidity score with enhanced penalties
+    # Optimal: 40-60% RH
     humidity_score = 100
-    if humidity > 70:
-        humidity_score = 100 - (humidity - 70)
-    elif humidity < 30:
-        humidity_score = 100 - (30 - humidity)
     
-    final_score = (temp_score * 0.8 + humidity_score * 0.2)
+    if humidity > 70:
+        # High humidity disrupts sleep significantly
+        if humidity > 80:
+            humidity_score = 40  # Very poor
+        elif humidity > 75:
+            humidity_score = 60  # Poor
+        else:
+            humidity_score = 80  # Fair
+    elif humidity < 30:
+        # Dry air causes discomfort
+        if humidity < 20:
+            humidity_score = 50  # Very poor
+        elif humidity < 25:
+            humidity_score = 70  # Poor
+        else:
+            humidity_score = 85  # Fair
+    elif 40 <= humidity <= 60:
+        # Ideal range
+        humidity_score = 100
+    else:
+        # Slightly outside ideal (30-40 or 60-70)
+        humidity_score = 95
+    
+    # Weight: temperature 70%, humidity 30% (humidity affects sleep more than general comfort)
+    final_score = (temp_score * 0.7 + humidity_score * 0.3)
     return max(0, min(100, int(final_score)))
 
 
 def calculate_exercise_safety(temp_c: float, wind_ms: float, humidity: float) -> tuple[int, str]:
-    """Calculate exercise safety index (0-100) and category."""
+    """Calculate exercise safety index (0-100) adapted for Swedish climate. Returns (score, category_key)."""
     feels_like = calculate_feels_like(temp_c, wind_ms, humidity)
     
     score = 100
-    category = "Safe"
+    category = "safe"
     
-    if feels_like >= 40:
+    # Extreme heat danger zones (adjusted for Swedish climate)
+    if feels_like >= 35:
         score = 0
-        category = "Extreme Risk"
-    elif feels_like >= 35:
-        score = 20
-        category = "High Risk"
-    elif feels_like >= 30:
+        category = "extreme_danger"
+    elif feels_like >= 32:
+        score = 10
+        category = "extreme_risk"
+    elif feels_like >= 28:
+        score = 30
+        category = "high_risk"
+    elif feels_like >= 25:
         score = 50
-        category = "Caution"
-    elif feels_like >= 27:
+        category = "caution_hot"
+    elif feels_like >= 22:
         score = 70
-        category = "Caution"
-    elif feels_like <= -25:
+        category = "moderate_risk"
+    elif feels_like >= 18:
+        score = 100
+        category = "ideal"
+    # Extreme cold danger zones (common in Swedish winters)
+    elif feels_like <= -30:
         score = 0
-        category = "Extreme Risk"
+        category = "extreme_danger"
+    elif feels_like <= -25:
+        score = 10
+        category = "extreme_risk"
     elif feels_like <= -20:
-        score = 20
-        category = "High Risk"
+        score = 25
+        category = "high_risk"
     elif feels_like <= -15:
         score = 50
-        category = "Caution"
+        category = "caution_cold"
     elif feels_like <= -10:
         score = 70
-        category = "Caution"
-    elif feels_like < 5 or feels_like > 25:
+        category = "moderate_risk"
+    elif feels_like <= 0:
         score = 85
-        category = "Safe"
+        category = "cool"
     else:
-        score = 100
-        category = "Safe"
+        score = 95
+        category = "safe"
     
+    # Humidity dehydration risk
     if humidity > 85 and temp_c > 20:
+        score = max(0, score - 20)
+        if score > 50:
+            category = "high_dehydration_risk"
+        elif score > 25:
+            category = "extreme_dehydration_risk"
+    elif humidity > 75 and temp_c > 18:
         score = max(0, score - 15)
-        if category == "Safe":
-            category = "Caution"
+        if category in ["safe", "ideal"]:
+            category = "caution_hydration"
+    elif humidity > 70 and temp_c > 22:
+        score = max(0, score - 10)
+        if category in ["safe", "ideal"]:
+            category = "monitor_hydration"
+    
+    # Very dry air risk
+    if humidity < 20 and (feels_like < -5 or feels_like > 20):
+        score = max(0, score - 10)
+        if category in ["safe", "ideal", "cool"]:
+            category = "dry_air_caution"
     
     return score, category
 
@@ -817,8 +1043,12 @@ class SmhiFeelsLikeSensor(SmhiBaseSensor):
             wind_kmh = wind * 3.6
             wind_chill = calculate_wind_chill(temp, wind_kmh)
             heat_index = calculate_heat_index(temp, humidity)
-            attrs["wind_chill"] = round(wind_chill, 1) if wind_chill is not None else None
-            attrs["heat_index"] = round(heat_index, 1) if heat_index is not None else None
+            
+            # Only include attributes when they have actual values
+            if wind_chill is not None:
+                attrs["wind_chill"] = round(wind_chill, 1)
+            if heat_index is not None:
+                attrs["heat_index"] = round(heat_index, 1)
         return attrs
 
 
@@ -1070,10 +1300,11 @@ class SmhiExerciseSafetySensor(SmhiBaseSensor):
         
         attrs = {}
         if temp is not None and wind is not None and humidity is not None:
-            score, category = calculate_exercise_safety(temp, wind, humidity)
+            score, category_key = calculate_exercise_safety(temp, wind, humidity)
             feels_like = calculate_feels_like(temp, wind, humidity)
             
-            attrs["safety_category"] = category
+            # Translate category based on Home Assistant language
+            attrs["safety_category"] = _translate(category_key, self.hass)
             attrs["feels_like_temperature"] = round(feels_like, 1)
         
         return attrs
@@ -1162,15 +1393,16 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
         
         # Determine active index
         if temp >= 27:
-            attrs["active_index"] = "Heat Index"
+            attrs["active_index"] = _translate("heat_index", self.hass)
         elif temp >= 17:
-            attrs["active_index"] = "Summer Comfort"
+            attrs["active_index"] = _translate("summer_comfort", self.hass)
         elif temp >= 10:
-            attrs["active_index"] = "Thoms Discomfort"
+            attrs["active_index"] = _translate("thoms_discomfort", self.hass)
         elif wind is not None and temp <= 16:
+            # Keep season name in index (Scharlau is a proper name)
             attrs["active_index"] = f"{season} Scharlau"
         else:
-            attrs["active_index"] = "Actual Temperature"
+            attrs["active_index"] = _translate("actual_temperature", self.hass)
         
         return attrs
 
@@ -1228,17 +1460,19 @@ class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
         
         # Humidity comfort assessment
         if dew_point >= 24:
-            attrs["humidity_comfort"] = "Oppressive"
+            comfort_key = "oppressive"
         elif dew_point >= 21:
-            attrs["humidity_comfort"] = "Very Humid"
+            comfort_key = "very_humid"
         elif dew_point >= 18:
-            attrs["humidity_comfort"] = "Humid"
+            comfort_key = "humid"
         elif dew_point >= 13:
-            attrs["humidity_comfort"] = "Comfortable"
+            comfort_key = "comfortable"
         elif dew_point >= 10:
-            attrs["humidity_comfort"] = "Pleasant"
+            comfort_key = "pleasant"
         else:
-            attrs["humidity_comfort"] = "Dry"
+            comfort_key = "dry"
+        
+        attrs["humidity_comfort"] = _translate(comfort_key, self.hass)
         
         return attrs
 
@@ -1256,7 +1490,7 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
 
     @property
     def native_value(self):
-        """Return heat stress percentage (0-100, higher = more stress)."""
+        """Return heat stress percentage (0-100, adapted for Swedish climate)."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
@@ -1264,25 +1498,38 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
         if temp is None or humidity is None:
             return 0
         
-        # Calculate combined heat stress score
+        # Calculate combined heat stress score (adjusted for Swedish expectations)
         stress = 0
         
-        # Base temperature stress
-        if temp >= 40:
+        # Base temperature stress (lower thresholds for Swedish climate)
+        if temp >= 35:
+            # Extreme for Sweden
             stress += 100
-        elif temp >= 35:
-            stress += 60 + (temp - 35) * 8
-        elif temp >= 30:
-            stress += 30 + (temp - 30) * 6
+        elif temp >= 32:
+            # Very rare, very stressful
+            stress += 80 + (temp - 32) * 7
+        elif temp >= 28:
+            # Rare hot weather
+            stress += 50 + (temp - 28) * 7.5
         elif temp >= 25:
-            stress += 10 + (temp - 25) * 4
+            # Hot for Swedish standards
+            stress += 30 + (temp - 25) * 6.5
+        elif temp >= 22:
+            # Warm, starting to be uncomfortable
+            stress += 15 + (temp - 22) * 5
         elif temp >= 20:
-            stress += (temp - 20) * 2
+            # Warm side of comfortable
+            stress += (temp - 20) * 7.5
+        elif temp >= 18:
+            # Comfortable to slightly warm
+            stress += (temp - 18) * 2.5
         
-        # Humidity multiplier
+        # Humidity multiplier (especially impactful in Swedish humid summers)
         if humidity >= 85:
+            stress *= 1.4
+        elif humidity >= 75:
             stress *= 1.3
-        elif humidity >= 70:
+        elif humidity >= 65:
             stress *= 1.2
         elif humidity >= 50:
             stress *= 1.1
@@ -1302,25 +1549,29 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
         # Overall risk level
         stress_pct = self.native_value
         if stress_pct >= 80:
-            attrs["risk_level"] = "Extreme Danger"
+            risk_key = "extreme_danger"
         elif stress_pct >= 60:
-            attrs["risk_level"] = "Danger"
+            risk_key = "danger"
         elif stress_pct >= 40:
-            attrs["risk_level"] = "Extreme Caution"
+            risk_key = "extreme_caution"
         elif stress_pct >= 20:
-            attrs["risk_level"] = "Caution"
+            risk_key = "caution"
         else:
-            attrs["risk_level"] = "Safe"
+            risk_key = "safe"
+        
+        attrs["risk_level"] = _translate(risk_key, self.hass)
         
         # Recommendations
         if stress_pct >= 60:
-            attrs["recommendation"] = "Avoid outdoor activity"
+            rec_key = "avoid_outdoor_activity"
         elif stress_pct >= 40:
-            attrs["recommendation"] = "Limit outdoor activity, stay hydrated"
+            rec_key = "limit_outdoor_activity"
         elif stress_pct >= 20:
-            attrs["recommendation"] = "Take breaks, drink water"
+            rec_key = "take_breaks_drink_water"
         else:
-            attrs["recommendation"] = "Normal activity safe"
+            rec_key = "normal_activity_safe"
+        
+        attrs["recommendation"] = _translate(rec_key, self.hass)
         
         return attrs
 

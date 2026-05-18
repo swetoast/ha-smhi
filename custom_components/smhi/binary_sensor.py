@@ -90,21 +90,52 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
+        """Return True if frost risk exceeds 60%."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
-        if temp is None:
+        if temp is None or humidity is None:
             return False
         
-        if temp <= 2:
-            return True
+        # Calculate frost risk using same formula as Frost: Risk sensor
+        import math
         
-        if temp <= 4 and humidity is not None:
-            dew_point = calculate_dew_point(temp, humidity)
-            return dew_point <= 0
+        # No risk above 5°C
+        if temp > 5:
+            return False
         
-        return False
+        # Base risk from temperature using sigmoid curve
+        temp_risk = 100 / (1 + math.exp((temp - 2) * 1.5))
+        
+        # Dew point spread factor
+        dew_point = calculate_dew_point(temp, humidity)
+        spread = temp - dew_point
+        
+        if spread < 1:
+            spread_multiplier = 1.3
+        elif spread < 2:
+            spread_multiplier = 1.15
+        elif spread < 3:
+            spread_multiplier = 1.05
+        else:
+            spread_multiplier = 1.0
+        
+        # Humidity bonus
+        if humidity > 80:
+            humidity_bonus = 15
+        elif humidity > 70:
+            humidity_bonus = 10
+        elif humidity > 60:
+            humidity_bonus = 5
+        else:
+            humidity_bonus = 0
+        
+        # Calculate risk
+        risk = (temp_risk * spread_multiplier) + humidity_bonus
+        
+        # Trigger when risk exceeds 60%
+        return risk > 60
 
     @property
     def extra_state_attributes(self):
@@ -144,7 +175,7 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return true if slippery conditions detected."""
+        """Return True if slippery risk exceeds 50%."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
@@ -153,16 +184,53 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
         if temp is None:
             return False
         
-        if not (-5 <= temp <= 3):
+        # Calculate slippery risk using same formula as Slippery: Risk sensor
+        # No risk outside dangerous temperature range
+        if temp < -10 or temp > 5:
             return False
         
-        if frozen is not None and frozen > 0.3 and precip is not None and precip > 0.1:
-            return True
+        # Base risk from distance to 0°C
+        distance_from_zero = abs(temp)
         
-        if -2 <= temp <= 1 and precip is not None and precip > 0.5:
-            return True
+        if distance_from_zero <= 1:
+            temp_risk = 50
+        elif distance_from_zero <= 2:
+            temp_risk = 40
+        elif distance_from_zero <= 3:
+            temp_risk = 30
+        elif distance_from_zero <= 5:
+            temp_risk = 20
+        else:
+            temp_risk = 10
         
-        return False
+        # Frozen precipitation factor
+        frozen_risk = 0
+        if frozen is not None:
+            if frozen > 0.7:
+                frozen_risk = 30
+            elif frozen > 0.5:
+                frozen_risk = 25
+            elif frozen > 0.3:
+                frozen_risk = 20
+            elif frozen > 0.1:
+                frozen_risk = 10
+        
+        # Precipitation intensity factor
+        precip_risk = 0
+        if precip is not None:
+            if precip > 2:
+                precip_risk = 20
+            elif precip > 1:
+                precip_risk = 15
+            elif precip > 0.5:
+                precip_risk = 10
+            elif precip > 0.1:
+                precip_risk = 5
+        
+        total_risk = temp_risk + frozen_risk + precip_risk
+        
+        # Trigger when risk exceeds 50%
+        return total_risk > 50
 
     @property
     def extra_state_attributes(self):

@@ -9,6 +9,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SmhiApi
@@ -240,12 +241,16 @@ class SmhiOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
         return self.async_show_form(step_id="init", data_schema=vol.Schema({
-            vol.Optional(CONF_FORECAST_TIMESERIES, default=self.entry.options.get(CONF_FORECAST_TIMESERIES, DEFAULT_FORECAST_TIMESERIES)): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
-            vol.Optional(CONF_SCAN_INTERVAL, default=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MIN)): vol.All(vol.Coerce(int), vol.Range(min=5, max=180)),
-            vol.Optional(CONF_ENABLE_COMFORT_SENSORS, default=self.entry.options.get(CONF_ENABLE_COMFORT_SENSORS, True)): bool,
-            vol.Optional(CONF_ENABLE_FROST_SENSORS, default=self.entry.options.get(CONF_ENABLE_FROST_SENSORS, True)): bool,
-            vol.Optional(CONF_ENABLE_SLIPPERY_SENSORS, default=self.entry.options.get(CONF_ENABLE_SLIPPERY_SENSORS, True)): bool,
-            vol.Optional(CONF_ENABLE_IMPACT_SENSOR, default=self.entry.options.get(CONF_ENABLE_IMPACT_SENSOR, True)): bool,
-            vol.Optional(CONF_ENABLE_PRACTICAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_PRACTICAL_SENSORS, True)): bool,
-            vol.Optional(CONF_ENABLE_THERMAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_THERMAL_SENSORS, True)): bool,
+            vol.Optional(CONF_FORECAST_TIMESERIES, default=self.entry.options.get(CONF_FORECAST_TIMESERIES, DEFAULT_FORECAST_TIMESERIES)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=200, step=1, mode=selector.NumberSelectorMode.SLIDER)
+            ),
+            vol.Optional(CONF_SCAN_INTERVAL, default=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MIN)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=5, max=180, step=5, mode=selector.NumberSelectorMode.SLIDER)
+            ),
+            vol.Optional(CONF_ENABLE_COMFORT_SENSORS, default=self.entry.options.get(CONF_ENABLE_COMFORT_SENSORS, True)): selector.BooleanSelector(),
+            vol.Optional(CONF_ENABLE_FROST_SENSORS, default=self.entry.options.get(CONF_ENABLE_FROST_SENSORS, True)): selector.BooleanSelector(),
+            vol.Optional(CONF_ENABLE_SLIPPERY_SENSORS, default=self.entry.options.get(CONF_ENABLE_SLIPPERY_SENSORS, True)): selector.BooleanSelector(),
+            vol.Optional(CONF_ENABLE_IMPACT_SENSOR, default=self.entry.options.get(CONF_ENABLE_IMPACT_SENSOR, True)): selector.BooleanSelector(),
+            vol.Optional(CONF_ENABLE_PRACTICAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_PRACTICAL_SENSORS, True)): selector.BooleanSelector(),
+            vol.Optional(CONF_ENABLE_THERMAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_THERMAL_SENSORS, True)): selector.BooleanSelector(),
         }))
