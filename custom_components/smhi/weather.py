@@ -64,16 +64,7 @@ class SmhiWeather(CoordinatorEntity, WeatherEntity):
     def native_visibility(self): return clean_value(self._current_data().get("visibility_in_air"), parameter="visibility_in_air")
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self._current_data()
-        series = self._series()
-        return {
-            "symbol_description": symbol_description(data.get("symbol_code")),
-            "precipitation_type_description": ptype_description(data.get("predominant_precipitation_type_at_surface")),
-            ATTR_RAW_CURRENT: data,
-            "forecast_points": len(series),
-            "forecast_start": series[0].get("time") if series else None,
-            "forecast_end": series[-1].get("time") if series else None,
-        }
+        return {}
     async def async_forecast_hourly(self) -> list[Forecast]:
         out: list[Forecast] = []
         for item in self._series():

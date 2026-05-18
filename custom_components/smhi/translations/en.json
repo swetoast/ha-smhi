@@ -24,7 +24,8 @@
           "enable_slippery_sensors": "Slippery sensors",
           "enable_impact_sensor": "Impact sensor",
           "enable_practical_sensors": "Practical sensors",
-          "enable_thermal_sensors": "Thermal sensors"
+          "enable_thermal_sensors": "Thermal sensors",
+          "enable_detailed_sensors": "Detailed sensors"
         },
         "data_description": {
           "enable_comfort_sensors": "Feels-like temperature combining wind chill and heat index",
@@ -32,7 +33,8 @@
           "enable_slippery_sensors": "Road ice/snow risk percentage (0-100%) and binary slippery conditions sensor",
           "enable_impact_sensor": "Overall weather severity score (0-100%) based on temperature, wind, precipitation, visibility",
           "enable_practical_sensors": "Clothing insulation (CLO), sleep comfort (%), and exercise safety (%) recommendations",
-          "enable_thermal_sensors": "Heat index, humidex, dew point analysis, and heat stress assessment"
+          "enable_thermal_sensors": "Heat index, humidex, dew point analysis, and heat stress assessment",
+          "enable_detailed_sensors": "4 safety sensors: frozen precipitation probability, black ice risk, fog probability, weather change alerts"
         }
       },
       "reconfigure": {
@@ -69,7 +71,8 @@
           "enable_slippery_sensors": "Enable slippery sensors (risk % and binary)",
           "enable_impact_sensor": "Enable weather impact sensor (severity %)",
           "enable_practical_sensors": "Enable practical sensors (clothing, sleep, exercise)",
-          "enable_thermal_sensors": "Enable thermal comfort sensors (3 comprehensive indices)"
+          "enable_thermal_sensors": "Enable thermal comfort sensors (3 comprehensive indices)",
+          "enable_detailed_sensors": "Enable detailed sensors (4 safety sensors)"
         }
       }
     }

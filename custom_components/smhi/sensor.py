@@ -24,6 +24,7 @@ from .const import (
     ATTR_REFERENCE_TIME,
     ATTR_STALE,
     CONF_ENABLE_COMFORT_SENSORS,
+    CONF_ENABLE_DETAILED_SENSORS,
     CONF_ENABLE_FROST_SENSORS,
     CONF_ENABLE_IMPACT_SENSOR,
     CONF_ENABLE_PRACTICAL_SENSORS,
@@ -428,62 +429,116 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
     return min(100, max(0, int(impact)))
 
 
-def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
-    """Calculate practical clothing insulation for Swedish/Nordic outdoor use.
-
-    This is intentionally not an indoor ASHRAE sedentary comfort calculation.
-    The previous version treated normal Swedish spring/autumn weather as if you
-    were sitting still indoors, which made the recommendation too warm.
-
-    Assumptions:
-    - normal Swedish acclimatisation
-    - short to moderate outdoor exposure
-    - light activity such as walking, commuting, errands
-    - wind only adds insulation demand when it is actually noticeable
+def calculate_clo_value(temp_c: float, wind_ms: float, coordinator=None) -> float:
+    """Calculate clothing insulation for Swedish outdoor conditions.
+    
+    Enhanced version that considers:
+    - Temperature and wind chill
+    - Precipitation (rain/snow requires protection)
+    - Cloud cover (sunny feels warmer than cloudy)
+    - Humidity (affects perceived temperature)
+    - Forecast trends (dress for where it's going, not just now)
+    - Swedish acclimatization and outdoor norms
+    
+    Target: Comfortable for 15-30 min outdoor exposure with light activity.
     """
     wind_ms = max(float(wind_ms or 0), 0.0)
-
-    # Practical wind adjustment for clothing choice.
-    # Below ~3 m/s most people do not need to change outfit just because of wind.
-    if wind_ms < 3:
-        effective_temp = temp_c
-    elif wind_ms < 6:
-        effective_temp = temp_c - 1.0
-    elif wind_ms < 9:
-        effective_temp = temp_c - 2.0
-    elif wind_ms < 13:
-        effective_temp = temp_c - 3.5
+    
+    # Get weather context if coordinator available
+    precip_mm = 0.0
+    cloud_octas = 4  # default: partly cloudy
+    humidity_pct = 70  # default
+    temp_trend = 0.0  # temperature change in next 2 hours
+    precip_prob = 0.0
+    
+    if coordinator:
+        try:
+            data = coordinator.current_payload()
+            if data and "timeSeries" in data and len(data["timeSeries"]) > 0:
+                current = data["timeSeries"][0].get("data", {})
+                
+                # Current conditions
+                precip_mm = float(current.get("precipitation_amount_mean") or current.get("precipitation_amount_mean_deterministic") or 0)
+                cloud_octas = float(current.get("cloud_area_fraction") or 4)
+                humidity_pct = float(current.get("relative_humidity") or 70)
+                precip_prob = float(current.get("probability_of_precipitation") or 0)
+                
+                # Temperature trend (next 2 hours if available)
+                if len(data["timeSeries"]) > 2:
+                    future_temp = data["timeSeries"][2].get("data", {}).get("air_temperature")
+                    if future_temp is not None:
+                        temp_trend = float(future_temp) - temp_c
+        except:
+            pass  # Use defaults if data unavailable
+    
+    # Base felt temperature with wind chill
+    if temp_c < 10 and wind_ms > 1.5:
+        # JAG/TI wind chill for cool conditions
+        wind_factor = 1.3 * (wind_ms ** 0.16)
+        felt_temp = temp_c - (wind_factor * (10 - temp_c) / 10)
     else:
-        effective_temp = temp_c - 5.0
-
-    # Nordic practical outdoor CLO bands.
-    # Lower than indoor comfort because people here are acclimatised and usually moving.
-    if effective_temp >= 24:
-        clo = 0.30  # hot summer: shorts / t-shirt
-    elif effective_temp >= 20:
-        clo = 0.40  # warm: light summer clothing
-    elif effective_temp >= 17:
-        clo = 0.50  # mild: trousers + t-shirt / thin shirt
-    elif effective_temp >= 14:
-        clo = 0.60  # Swedish spring/autumn mild: light long sleeve or thin layer
-    elif effective_temp >= 11:
-        clo = 0.75  # cool: hoodie/thin sweater
-    elif effective_temp >= 8:
-        clo = 0.90  # chilly: sweater or light jacket
-    elif effective_temp >= 5:
-        clo = 1.05  # cold-ish: jacket
-    elif effective_temp >= 2:
-        clo = 1.20  # cold: warmer jacket / layers
-    elif effective_temp >= -2:
-        clo = 1.40  # around freezing: winter jacket / gloves if exposed
-    elif effective_temp >= -6:
-        clo = 1.65  # cold winter: insulated jacket and warm accessories
-    elif effective_temp >= -10:
-        clo = 1.90  # proper winter clothing
+        felt_temp = temp_c
+    
+    # Cloud cover adjustment: sunny feels 1-2°C warmer than cloudy
+    if cloud_octas < 2:  # Clear
+        felt_temp += 1.5
+    elif cloud_octas < 4:  # Mostly clear
+        felt_temp += 0.8
+    elif cloud_octas > 6:  # Very cloudy
+        felt_temp -= 0.5
+    
+    # Humidity adjustment: high humidity feels cooler
+    if humidity_pct > 85:
+        felt_temp -= 0.8
+    elif humidity_pct < 40:
+        felt_temp += 0.5
+    
+    # Forecast trend: if getting colder, dress warmer NOW
+    if temp_trend < -2:
+        felt_temp += temp_trend * 0.3  # Reduce felt temp if cooling
+    
+    # Base CLO for Swedish outdoor comfort
+    # More conservative than previous version - Swedes dress warmer in practice
+    if felt_temp >= 22:
+        base_clo = 0.25 + (24 - felt_temp) * 0.04  # 0.17-0.33
+    elif felt_temp >= 18:
+        base_clo = 0.40 + (20 - felt_temp) * 0.04  # 0.32-0.48
+    elif felt_temp >= 14:
+        base_clo = 0.55 + (16 - felt_temp) * 0.05  # 0.45-0.65
+    elif felt_temp >= 10:
+        base_clo = 0.75 + (12 - felt_temp) * 0.055  # 0.64-0.86
+    elif felt_temp >= 6:
+        base_clo = 0.95 + (8 - felt_temp) * 0.06  # 0.83-1.07
+    elif felt_temp >= 2:
+        base_clo = 1.20 + (4 - felt_temp) * 0.07  # 1.06-1.34
+    elif felt_temp >= -2:
+        base_clo = 1.45 + (0 - felt_temp) * 0.08  # 1.29-1.61
+    elif felt_temp >= -6:
+        base_clo = 1.75 + (-4 - felt_temp) * 0.09  # 1.57-1.93
+    elif felt_temp >= -10:
+        base_clo = 2.10 + (-8 - felt_temp) * 0.10  # 1.92-2.30
     else:
-        clo = 2.25  # severe cold
-
-    return max(0.25, min(clo, 2.75))
+        base_clo = 2.45 + max(-12 - felt_temp, 0) * 0.12  # 2.21+
+    
+    # Precipitation adjustment: rain/snow requires waterproof layer
+    if precip_mm > 0.5 or precip_prob > 60:
+        # Heavy rain or high probability
+        base_clo += 0.15  # Need waterproof shell
+    elif precip_mm > 0.1 or precip_prob > 30:
+        # Light rain or moderate probability
+        base_clo += 0.08
+    
+    # Wind penalty for exposed conditions
+    if wind_ms > 5:
+        base_clo += (wind_ms - 5) * 0.025  # Extra insulation needed
+    
+    # Activity adjustment: light activity (walking) generates extra heat
+    # But less aggressive than before - Swedish practice is to dress warm
+    activity_reduction = 0.08  # Reduced from 0.12
+    
+    final_clo = base_clo - activity_reduction
+    
+    return round(max(0.20, min(final_clo, 3.2)), 2)
 
 def calculate_sleep_comfort(temp_c: float, humidity: float) -> int:
     """Calculate sleep comfort score (0-100) with enhanced humidity considerations."""
@@ -995,6 +1050,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             SmhiHumidityPerceptionSensor(coordinator),
         ])
     
+    if entry.options.get(CONF_ENABLE_DETAILED_SENSORS, False):
+        sensors.extend([
+            SmhiFrozenPrecipitationProbabilitySensor(coordinator),
+            SmhiBlackIceRiskSensor(coordinator),
+            SmhiFogProbabilitySensor(coordinator),
+            SmhiRapidWeatherChangeSensor(coordinator),
+        ])
+    
     async_add_entities(sensors)
 
 
@@ -1108,6 +1171,23 @@ class SmhiThunderstormProbabilitySensor(SmhiBaseSensor):
     def native_value(self):
         value = clean_value(_data(self.coordinator).get("thunderstorm_probability"), parameter="thunderstorm_probability")
         return value * 100 if value is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = {}
+        value = self.native_value
+        if value is not None:
+            if value >= 70:
+                attrs["risk_level"] = "Very High"
+            elif value >= 50:
+                attrs["risk_level"] = "High"
+            elif value >= 30:
+                attrs["risk_level"] = "Moderate"
+            elif value >= 10:
+                attrs["risk_level"] = "Low"
+            else:
+                attrs["risk_level"] = "Very Low"
+        return attrs
 
 
 class SmhiSymbolCodeSensor(SmhiBaseSensor):
@@ -1364,7 +1444,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         if temp is None or wind is None:
             return None
 
-        return round(calculate_clo_value(temp, wind), 1)
+        return round(calculate_clo_value(temp, wind, self.coordinator), 1)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -1375,77 +1455,96 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         precip = clean_value(data.get("precipitation_amount_mean_deterministic"), parameter="precipitation_amount_mean_deterministic")
         if precip is None:
             precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+        precip_prob = clean_value(data.get("probability_of_precipitation"), parameter="probability_of_precipitation")
+        clouds = clean_value(data.get("cloud_area_fraction"), parameter="cloud_area_fraction")
+        symbol = clean_value(data.get("symbol_code"), parameter="symbol_code")
 
         attrs: dict[str, Any] = {}
         if temp is None or wind is None:
             return attrs
 
-        clo = calculate_clo_value(temp, wind)
-
-        # Same wind adjustment as calculate_clo_value, exposed for debugging.
-        if wind < 3:
-            effective_temp = temp
-            wind_adjustment = 0.0
-        elif wind < 6:
-            effective_temp = temp - 1.0
-            wind_adjustment = -1.0
-        elif wind < 9:
-            effective_temp = temp - 2.0
-            wind_adjustment = -2.0
-        elif wind < 13:
-            effective_temp = temp - 3.5
-            wind_adjustment = -3.5
-        else:
-            effective_temp = temp - 5.0
-            wind_adjustment = -5.0
+        clo = calculate_clo_value(temp, wind, self.coordinator)
 
         attrs["climate_profile"] = "Swedish/Nordic practical outdoor clothing"
-        attrs["assumption"] = "Light activity or normal commute, not sitting still outdoors"
+        attrs["assumption"] = "Light activity (walking/commuting), 15-30 min exposure"
         attrs["temperature"] = round(temp, 1)
         attrs["wind_speed"] = round(wind, 1)
-        attrs["effective_clothing_temperature"] = round(effective_temp, 1)
-        attrs["wind_adjustment"] = wind_adjustment
+        
+        # Weather context
+        if humidity is not None:
+            attrs["humidity"] = round(humidity, 0)
+        if clouds is not None:
+            attrs["cloud_cover_octas"] = round(clouds, 0)
+        if precip is not None and precip > 0:
+            attrs["precipitation_mm"] = round(precip, 1)
+        if precip_prob is not None and precip_prob > 0:
+            attrs["precipitation_probability"] = round(precip_prob * 100 if precip_prob <= 1 else precip_prob, 0)
+        if symbol:
+            attrs["weather_symbol"] = symbol
+        
+        # Forecast trend if available
+        try:
+            payload = self.coordinator.current_payload()
+            if payload and "timeSeries" in payload and len(payload["timeSeries"]) > 2:
+                future_temp = payload["timeSeries"][2].get("data", {}).get("air_temperature")
+                if future_temp is not None:
+                    temp_change = round(future_temp - temp, 1)
+                    if abs(temp_change) > 1:
+                        attrs["temp_trend_2h"] = temp_change
+        except:
+            pass
 
+        # Clothing recommendations based on CLO value
         if clo < 0.40:
             attrs["clothing_level"] = "Very light summer"
             attrs["outfit_suggestion"] = "Shorts and T-shirt, or very light summer clothing"
-            attrs["example_garments"] = ["Shorts", "T-shirt", "Light shoes"]
+            attrs["example_garments"] = "Shorts, T-shirt, Sandals"
         elif clo < 0.55:
             attrs["clothing_level"] = "Light summer"
             attrs["outfit_suggestion"] = "T-shirt or thin shirt with light trousers"
-            attrs["example_garments"] = ["T-shirt", "Light trousers"]
+            attrs["example_garments"] = "T-shirt, Light trousers, Sneakers"
         elif clo < 0.70:
             attrs["clothing_level"] = "Mild Swedish weather"
-            attrs["outfit_suggestion"] = "Trousers with T-shirt, thin long sleeve, or a very light extra layer"
-            attrs["example_garments"] = ["Trousers", "T-shirt", "Thin long sleeve"]
+            attrs["outfit_suggestion"] = "Long sleeve shirt or thin sweater, light jacket if windy"
+            attrs["example_garments"] = "Long sleeve shirt, Light sweater, Trousers"
         elif clo < 0.85:
             attrs["clothing_level"] = "Cool but normal"
-            attrs["outfit_suggestion"] = "Trousers with hoodie, thin sweater, or overshirt"
-            attrs["example_garments"] = ["Trousers", "Hoodie", "Thin sweater"]
+            attrs["outfit_suggestion"] = "Sweater or hoodie, windproof layer if breezy"
+            attrs["example_garments"] = "Hoodie, Sweater, Trousers, Closed shoes"
         elif clo < 1.00:
             attrs["clothing_level"] = "Chilly"
-            attrs["outfit_suggestion"] = "Sweater or light jacket; windproof shell if windy"
-            attrs["example_garments"] = ["Sweater", "Light jacket"]
+            attrs["outfit_suggestion"] = "Light jacket or sweater with windproof shell"
+            attrs["example_garments"] = "Light jacket, Sweater, Windbreaker"
         elif clo < 1.20:
             attrs["clothing_level"] = "Cold"
-            attrs["outfit_suggestion"] = "Jacket with normal layers"
-            attrs["example_garments"] = ["Jacket", "Sweater", "Trousers"]
+            attrs["outfit_suggestion"] = "Jacket with warm layers"
+            attrs["example_garments"] = "Jacket, Sweater, Scarf, Trousers"
         elif clo < 1.45:
             attrs["clothing_level"] = "Near freezing"
-            attrs["outfit_suggestion"] = "Warm jacket; consider gloves/hat for longer exposure"
-            attrs["example_garments"] = ["Warm jacket", "Sweater", "Gloves", "Hat"]
+            attrs["outfit_suggestion"] = "Warm jacket with gloves and hat for comfort"
+            attrs["example_garments"] = "Warm jacket, Gloves, Hat, Sweater"
         elif clo < 1.75:
             attrs["clothing_level"] = "Winter"
             attrs["outfit_suggestion"] = "Winter jacket with warm layers and accessories"
-            attrs["example_garments"] = ["Winter jacket", "Warm sweater", "Gloves", "Hat"]
+            attrs["example_garments"] = "Winter jacket, Warm layers, Gloves, Hat"
         elif clo < 2.10:
             attrs["clothing_level"] = "Cold winter"
-            attrs["outfit_suggestion"] = "Insulated winter clothing, gloves, hat, warm footwear"
-            attrs["example_garments"] = ["Insulated jacket", "Thermal layer", "Warm boots"]
+            attrs["outfit_suggestion"] = "Insulated winter clothing with full accessories"
+            attrs["example_garments"] = "Insulated jacket, Thermal base, Warm boots, Gloves, Hat"
         else:
             attrs["clothing_level"] = "Severe cold"
-            attrs["outfit_suggestion"] = "Full winter layering with insulated outerwear and covered extremities"
-            attrs["example_garments"] = ["Heavy winter jacket", "Thermal base layer", "Warm boots", "Gloves", "Hat"]
+            attrs["outfit_suggestion"] = "Full winter gear - heavy insulation required"
+            attrs["example_garments"] = "Heavy winter parka, Thermal layers, Insulated boots, Winter gloves, Warm hat"
+        
+        # Weather-specific advice
+        if precip and precip > 0.3:
+            attrs["weather_note"] = "Rain expected - waterproof layer recommended"
+        elif precip_prob and precip_prob > 0.6:
+            attrs["weather_note"] = "High chance of rain - bring waterproof"
+        elif wind and wind > 7:
+            attrs["weather_note"] = "Windy - windproof outer layer important"
+        elif clouds is not None and clouds < 2:
+            attrs["weather_note"] = "Sunny - may feel warmer in direct sun"
 
         if precip is not None and precip > 0:
             attrs["precipitation_note"] = "Use waterproof outer layer if you will be outside in precipitation"
@@ -1939,3 +2038,393 @@ class SmhiHumidityPerceptionSensor(SmhiBaseSensor):
             return HumidityComfort.DRY
         else:
             return HumidityComfort.VERY_DRY
+
+# =============================================================================
+# SAFETY & HAZARD SENSORS
+# =============================================================================
+
+class SmhiFrozenPrecipitationProbabilitySensor(SmhiBaseSensor):
+    """Probability of frozen precipitation."""
+    _attr_name = "Frozen Precipitation Probability"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:snowflake-alert"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_frozen_precip_probability"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        value = clean_value(data.get("probability_of_frozen_precipitation"), 
+                          parameter="probability_of_frozen_precipitation")
+        if value is not None and value <= 1:
+            value = value * 100
+        return value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = {}
+        value = self.native_value
+        if value is not None:
+            if value >= 80:
+                attrs["expectation"] = "Snow/Ice very likely"
+            elif value >= 60:
+                attrs["expectation"] = "Snow/Ice likely"
+            elif value >= 40:
+                attrs["expectation"] = "Snow/Ice possible"
+            elif value >= 20:
+                attrs["expectation"] = "Snow/Ice unlikely"
+            else:
+                attrs["expectation"] = "Snow/Ice very unlikely"
+        return attrs
+
+
+class SmhiBlackIceRiskSensor(SmhiBaseSensor):
+    """Black ice risk assessment sensor."""
+    _attr_name = "Safety: Black Ice Risk"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["none", "low", "moderate", "high", "very_high"]
+    _attr_icon = "mdi:snowflake-alert"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_black_ice_risk"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        precip_prob = clean_value(data.get("probability_of_precipitation"), parameter="probability_of_precipitation")
+        precip_amount = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+        
+        if temp is None or humidity is None:
+            return "none"
+        
+        dew_point = calculate_dew_point(temp, humidity)
+        spread = temp - dew_point
+        
+        if temp > 4:
+            return "none"
+        
+        risk_score = 0
+        
+        if -4 <= temp <= 2:
+            if -2 <= temp <= 0:
+                risk_score += 40
+            elif -4 <= temp < -2 or 0 < temp <= 2:
+                risk_score += 30
+        elif temp < -4:
+            risk_score += 20
+        
+        if precip_prob and precip_prob > 0:
+            risk_score += min(precip_prob / 2, 30)
+        
+        if precip_amount and precip_amount > 0:
+            risk_score += min(precip_amount * 10, 20)
+        
+        if humidity > 85:
+            risk_score += 15
+        elif humidity > 75:
+            risk_score += 10
+        
+        if spread < 1:
+            risk_score += 10
+        elif spread < 2:
+            risk_score += 5
+        
+        if risk_score >= 80:
+            return "very_high"
+        elif risk_score >= 60:
+            return "high"
+        elif risk_score >= 40:
+            return "moderate"
+        elif risk_score >= 20:
+            return "low"
+        else:
+            return "none"
+    
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        
+        attrs = {}
+        if temp is not None and humidity is not None:
+            dew_point = calculate_dew_point(temp, humidity)
+            attrs["temperature"] = temp
+            attrs["dew_point"] = round(dew_point, 1)
+            attrs["spread"] = round(temp - dew_point, 1)
+            
+            risk = self.native_value
+            if risk == "very_high":
+                attrs["warning"] = "Extreme black ice risk - avoid driving if possible"
+            elif risk == "high":
+                attrs["warning"] = "High black ice risk - drive with extreme caution"
+            elif risk == "moderate":
+                attrs["warning"] = "Moderate black ice risk - reduce speed"
+            elif risk == "low":
+                attrs["warning"] = "Low black ice risk - stay alert"
+            else:
+                attrs["warning"] = "No black ice risk"
+        
+        return attrs
+
+
+class SmhiFogProbabilitySensor(SmhiBaseSensor):
+    """Fog probability sensor."""
+    _attr_name = "Safety: Fog Probability"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:weather-fog"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_fog_probability"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        
+        if temp is None or humidity is None:
+            return 0
+        
+        dew_point = calculate_dew_point(temp, humidity)
+        spread = temp - dew_point
+        
+        fog_prob = 0
+        
+        if spread < 0.5:
+            fog_prob = 95
+        elif spread < 1:
+            fog_prob = 80
+        elif spread < 1.5:
+            fog_prob = 60
+        elif spread < 2:
+            fog_prob = 40
+        elif spread < 2.5:
+            fog_prob = 25
+        elif spread < 3:
+            fog_prob = 15
+        else:
+            fog_prob = max(0, 15 - (spread - 3) * 3)
+        
+        if humidity > 95:
+            fog_prob = min(100, fog_prob + 10)
+        elif humidity > 90:
+            fog_prob = min(100, fog_prob + 5)
+        
+        if -5 <= temp <= 15:
+            fog_prob = min(100, fog_prob + 5)
+        
+        return int(fog_prob)
+    
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        visibility = clean_value(data.get("visibility_in_air"), parameter="visibility_in_air")
+        
+        attrs = {}
+        if temp is not None and humidity is not None:
+            dew_point = calculate_dew_point(temp, humidity)
+            attrs["temperature"] = temp
+            attrs["dew_point"] = round(dew_point, 1)
+            attrs["spread"] = round(temp - dew_point, 1)
+            attrs["humidity"] = humidity
+            
+            if visibility:
+                attrs["current_visibility_km"] = visibility
+            
+            prob = self.native_value
+            if prob >= 80:
+                attrs["category"] = "Very High"
+                attrs["description"] = "Dense fog likely"
+            elif prob >= 60:
+                attrs["category"] = "High"
+                attrs["description"] = "Fog likely"
+            elif prob >= 40:
+                attrs["category"] = "Moderate"
+                attrs["description"] = "Fog possible"
+            elif prob >= 20:
+                attrs["category"] = "Low"
+                attrs["description"] = "Patchy fog possible"
+            else:
+                attrs["category"] = "Very Low"
+                attrs["description"] = "Fog unlikely"
+        
+        return attrs
+
+
+class SmhiRapidWeatherChangeSensor(SmhiBaseSensor):
+    """Rapid weather change detection sensor."""
+    _attr_name = "Safety: Weather Change Alert"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["stable", "minor", "moderate", "significant", "severe"]
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_weather_change_alert"
+
+    def _get_forecast_data(self, hours_ahead: int):
+        """Get forecast data for specified hours ahead."""
+        payload = self.coordinator.current_payload()
+        series = payload.get("timeSeries") or []
+        
+        if not isinstance(series, list) or not series:
+            return None
+        
+        target_index = min(hours_ahead, len(series) - 1)
+        if target_index < len(series):
+            item = series[target_index]
+            return item.get("data") if isinstance(item, dict) else None
+        return None
+
+    @property
+    def native_value(self):
+        current = _data(self.coordinator)
+        forecast_1h = self._get_forecast_data(1)
+        forecast_3h = self._get_forecast_data(3)
+        
+        if not current or not forecast_1h:
+            return "stable"
+        
+        temp_now = clean_value(current.get("air_temperature"), parameter="air_temperature")
+        pressure_now = clean_value(current.get("air_pressure_at_mean_sea_level"), parameter="air_pressure_at_mean_sea_level")
+        wind_now = clean_value(current.get("wind_speed"), parameter="wind_speed")
+        precip_prob_now = clean_value(current.get("probability_of_precipitation"), parameter="probability_of_precipitation") or 0
+        
+        if temp_now is None or pressure_now is None or wind_now is None:
+            return "stable"
+        
+        change_score = 0
+        changes = []
+        
+        temp_1h = clean_value(forecast_1h.get("air_temperature"), parameter="air_temperature")
+        pressure_1h = clean_value(forecast_1h.get("air_pressure_at_mean_sea_level"), parameter="air_pressure_at_mean_sea_level")
+        wind_1h = clean_value(forecast_1h.get("wind_speed"), parameter="wind_speed")
+        precip_prob_1h = clean_value(forecast_1h.get("probability_of_precipitation"), parameter="probability_of_precipitation") or 0
+        
+        if temp_1h is not None:
+            temp_change = abs(temp_1h - temp_now)
+            if temp_change > 5:
+                change_score += 30
+                changes.append(f"Temp: {temp_change:+.1f}°C in 1h")
+            elif temp_change > 3:
+                change_score += 20
+                changes.append(f"Temp: {temp_change:+.1f}°C in 1h")
+            elif temp_change > 2:
+                change_score += 10
+        
+        if pressure_1h is not None:
+            pressure_change = abs(pressure_1h - pressure_now)
+            if pressure_change > 5:
+                change_score += 25
+                changes.append(f"Pressure: {pressure_change:+.1f} hPa in 1h")
+            elif pressure_change > 3:
+                change_score += 15
+                changes.append(f"Pressure: {pressure_change:+.1f} hPa in 1h")
+        
+        if wind_1h is not None:
+            wind_change = abs(wind_1h - wind_now)
+            if wind_change > 5:
+                change_score += 20
+                changes.append(f"Wind: {wind_change:+.1f} m/s in 1h")
+            elif wind_change > 3:
+                change_score += 10
+        
+        precip_change = abs(precip_prob_1h - precip_prob_now)
+        if precip_change > 50:
+            change_score += 25
+            if precip_prob_1h > precip_prob_now:
+                changes.append(f"Rain starting ({precip_prob_1h:.0f}% prob)")
+            else:
+                changes.append(f"Rain stopping")
+        elif precip_change > 30:
+            change_score += 15
+        
+        if forecast_3h:
+            temp_3h = clean_value(forecast_3h.get("air_temperature"), parameter="air_temperature")
+            if temp_3h is not None and temp_1h is not None:
+                temp_change_3h = abs(temp_3h - temp_now)
+                if temp_change_3h > 8:
+                    change_score += 20
+                    changes.append(f"Temp: {temp_3h - temp_now:+.1f}°C in 3h")
+        
+        if change_score >= 80:
+            return "severe"
+        elif change_score >= 60:
+            return "significant"
+        elif change_score >= 40:
+            return "moderate"
+        elif change_score >= 20:
+            return "minor"
+        else:
+            return "stable"
+    
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        current = _data(self.coordinator)
+        forecast_1h = self._get_forecast_data(1)
+        forecast_3h = self._get_forecast_data(3)
+        
+        attrs = {}
+        
+        if not current or not forecast_1h:
+            return attrs
+        
+        temp_now = clean_value(current.get("air_temperature"), parameter="air_temperature")
+        pressure_now = clean_value(current.get("air_pressure_at_mean_sea_level"), parameter="air_pressure_at_mean_sea_level")
+        wind_now = clean_value(current.get("wind_speed"), parameter="wind_speed")
+        
+        temp_1h = clean_value(forecast_1h.get("air_temperature"), parameter="air_temperature")
+        pressure_1h = clean_value(forecast_1h.get("air_pressure_at_mean_sea_level"), parameter="air_pressure_at_mean_sea_level")
+        wind_1h = clean_value(forecast_1h.get("wind_speed"), parameter="wind_speed")
+        
+        changes = []
+        
+        if temp_now is not None and temp_1h is not None:
+            temp_change = temp_1h - temp_now
+            attrs["temp_change_1h"] = round(temp_change, 1)
+            if abs(temp_change) > 2:
+                changes.append(f"Temperature {temp_change:+.1f}°C")
+        
+        if pressure_now is not None and pressure_1h is not None:
+            pressure_change = pressure_1h - pressure_now
+            attrs["pressure_change_1h"] = round(pressure_change, 1)
+            if abs(pressure_change) > 3:
+                changes.append(f"Pressure {pressure_change:+.1f} hPa")
+        
+        if wind_now is not None and wind_1h is not None:
+            wind_change = wind_1h - wind_now
+            attrs["wind_change_1h"] = round(wind_change, 1)
+            if abs(wind_change) > 3:
+                changes.append(f"Wind {wind_change:+.1f} m/s")
+        
+        if forecast_3h:
+            temp_3h = clean_value(forecast_3h.get("air_temperature"), parameter="air_temperature")
+            if temp_now is not None and temp_3h is not None:
+                attrs["temp_change_3h"] = round(temp_3h - temp_now, 1)
+        
+        attrs["detected_changes"] = changes if changes else ["No significant changes"]
+        
+        severity = self.native_value
+        if severity == "severe":
+            attrs["recommendation"] = "Extreme weather changes expected - take precautions"
+        elif severity == "significant":
+            attrs["recommendation"] = "Significant changes expected - be prepared"
+        elif severity == "moderate":
+            attrs["recommendation"] = "Moderate changes expected - stay aware"
+        elif severity == "minor":
+            attrs["recommendation"] = "Minor changes expected"
+        else:
+            attrs["recommendation"] = "Stable conditions expected"
+        
+        return attrs
