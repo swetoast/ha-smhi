@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -133,6 +134,53 @@ def _translate(key: str, hass: HomeAssistant) -> str:
     return TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
 
 
+# Perception Enum Classes for ENUM sensors
+class ExerciseSafetyCategory(StrEnum):
+    """Exercise safety perception categories."""
+    IDEAL = "ideal"
+    SAFE = "safe"
+    COOL = "cool"
+    MODERATE_RISK = "moderate_risk"
+    CAUTION_HOT = "caution_hot"
+    CAUTION_COLD = "caution_cold"
+    HIGH_RISK = "high_risk"
+    EXTREME_RISK = "extreme_risk"
+    EXTREME_DANGER = "extreme_danger"
+    HIGH_DEHYDRATION_RISK = "high_dehydration_risk"
+    EXTREME_DEHYDRATION_RISK = "extreme_dehydration_risk"
+    CAUTION_HYDRATION = "caution_hydration"
+    MONITOR_HYDRATION = "monitor_hydration"
+    DRY_AIR_CAUTION = "dry_air_caution"
+
+
+class RiskLevel(StrEnum):
+    """Risk level categories."""
+    SAFE = "safe"
+    CAUTION = "caution"
+    EXTREME_CAUTION = "extreme_caution"
+    DANGER = "danger"
+    EXTREME_DANGER = "extreme_danger"
+
+
+class HumidityComfort(StrEnum):
+    """Humidity comfort perception."""
+    OPPRESSIVE = "oppressive"
+    VERY_HUMID = "very_humid"
+    HUMID = "humid"
+    COMFORTABLE = "comfortable"
+    PLEASANT = "pleasant"
+    DRY = "dry"
+    VERY_DRY = "very_dry"
+
+
+class ThermalIndex(StrEnum):
+    """Active thermal comfort index names."""
+    HEAT_INDEX = "heat_index"
+    SUMMER_COMFORT = "summer_comfort"
+    THOMS_DISCOMFORT = "thoms_discomfort"
+    ACTUAL_TEMPERATURE = "actual_temperature"
+
+
 def _payload(coordinator) -> dict[str, Any]:
     return coordinator.current_payload()
 
@@ -142,11 +190,28 @@ def _data(coordinator) -> dict[str, Any]:
 
 
 def calculate_dew_point(temp_c: float, humidity: float) -> float:
-    """Calculate dew point using Magnus formula."""
-    a = 17.27
-    b = 237.7
-    alpha = ((a * temp_c) / (b + temp_c)) + (humidity / 100.0)
-    return (b * alpha) / (a - alpha)
+    """Calculate dew point using Sonntag formula (more accurate than Magnus).
+    
+    Source: http://wahiduddin.net/calc/density_algorithms.htm
+    """
+    import math
+    
+    # Sonntag formula for saturation vapor pressure
+    A0 = 373.15 / (273.15 + temp_c)
+    SUM = -7.90298 * (A0 - 1)
+    SUM += 5.02808 * math.log(A0, 10)
+    SUM += -1.3816e-7 * (pow(10, (11.344 * (1 - 1 / A0))) - 1)
+    SUM += 8.1328e-3 * (pow(10, (-3.49149 * (A0 - 1))) - 1)
+    SUM += math.log(1013.246, 10)
+    
+    # Vapor pressure
+    VP = pow(10, SUM - 3) * humidity
+    
+    # Dew point temperature
+    Td = math.log(VP / 0.61078)
+    Td = (241.88 * Td) / (17.558 - Td)
+    
+    return Td
 
 
 def calculate_wind_chill(temp_c: float, wind_kmh: float) -> float | None:
@@ -157,16 +222,42 @@ def calculate_wind_chill(temp_c: float, wind_kmh: float) -> float | None:
 
 
 def calculate_heat_index(temp_c: float, humidity: float) -> float | None:
-    """Calculate heat index (Steadman formula)."""
+    """Calculate heat index using full NWS formula with adjustments.
+    
+    Source: http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
+    """
     if temp_c < 27:
         return None
-    T = temp_c
-    RH = humidity
-    HI = (-8.78469475556 + 1.61139411 * T + 2.33854883889 * RH 
-          - 0.14611605 * T * RH - 0.012308094 * T ** 2 
-          - 0.0164248277778 * RH ** 2 + 0.002211732 * T ** 2 * RH 
-          + 0.00072546 * T * RH ** 2 - 0.000003582 * T ** 2 * RH ** 2)
-    return HI
+    
+    import math
+    
+    # Convert to Fahrenheit for calculation
+    fahrenheit = temp_c * 9/5 + 32
+    
+    # Simple formula as initial estimate
+    hi = 0.5 * (fahrenheit + 61.0 + ((fahrenheit - 68.0) * 1.2) + (humidity * 0.094))
+    
+    # Use full regression equation if simple formula > 79°F
+    if hi > 79:
+        hi = -42.379 + 2.04901523 * fahrenheit
+        hi += 10.14333127 * humidity
+        hi += -0.22475541 * fahrenheit * humidity
+        hi += -0.00683783 * pow(fahrenheit, 2)
+        hi += -0.05481717 * pow(humidity, 2)
+        hi += 0.00122874 * pow(fahrenheit, 2) * humidity
+        hi += 0.00085282 * fahrenheit * pow(humidity, 2)
+        hi += -0.00000199 * pow(fahrenheit, 2) * pow(humidity, 2)
+    
+    # Adjustments for low humidity
+    if humidity < 13 and fahrenheit >= 80 and fahrenheit <= 112:
+        hi -= ((13 - humidity) * 0.25) * math.sqrt((17 - abs(fahrenheit - 95)) * 0.05882)
+    
+    # Adjustments for high humidity
+    elif humidity > 85 and fahrenheit >= 80 and fahrenheit <= 87:
+        hi += ((humidity - 85) * 0.1) * ((87 - fahrenheit) * 0.2)
+    
+    # Convert back to Celsius
+    return (hi - 32) * 5/9
 
 
 def calculate_feels_like(temp_c: float, wind_ms: float, humidity: float) -> float:
@@ -338,36 +429,61 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
 
 
 def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
-    """Calculate clothing insulation needed in CLO units."""
-    wind_kmh = wind_ms * 3.6
-    wind_chill = calculate_wind_chill(temp_c, wind_kmh)
-    effective_temp = wind_chill if wind_chill is not None else temp_c
-    
-    if effective_temp >= 26:
-        return 0.4
-    elif effective_temp >= 23:
-        return 0.5
-    elif effective_temp >= 21:
-        return 0.6
-    elif effective_temp >= 18:
-        return 0.8
-    elif effective_temp >= 15:
-        return 1.0
-    elif effective_temp >= 10:
-        return 1.2
-    elif effective_temp >= 5:
-        return 1.5
-    elif effective_temp >= 0:
-        return 1.8
-    elif effective_temp >= -5:
-        return 2.0
-    elif effective_temp >= -10:
-        return 2.3
-    elif effective_temp >= -15:
-        return 2.6
-    else:
-        return 3.0
+    """Calculate practical clothing insulation for Swedish/Nordic outdoor use.
 
+    This is intentionally not an indoor ASHRAE sedentary comfort calculation.
+    The previous version treated normal Swedish spring/autumn weather as if you
+    were sitting still indoors, which made the recommendation too warm.
+
+    Assumptions:
+    - normal Swedish acclimatisation
+    - short to moderate outdoor exposure
+    - light activity such as walking, commuting, errands
+    - wind only adds insulation demand when it is actually noticeable
+    """
+    wind_ms = max(float(wind_ms or 0), 0.0)
+
+    # Practical wind adjustment for clothing choice.
+    # Below ~3 m/s most people do not need to change outfit just because of wind.
+    if wind_ms < 3:
+        effective_temp = temp_c
+    elif wind_ms < 6:
+        effective_temp = temp_c - 1.0
+    elif wind_ms < 9:
+        effective_temp = temp_c - 2.0
+    elif wind_ms < 13:
+        effective_temp = temp_c - 3.5
+    else:
+        effective_temp = temp_c - 5.0
+
+    # Nordic practical outdoor CLO bands.
+    # Lower than indoor comfort because people here are acclimatised and usually moving.
+    if effective_temp >= 24:
+        clo = 0.30  # hot summer: shorts / t-shirt
+    elif effective_temp >= 20:
+        clo = 0.40  # warm: light summer clothing
+    elif effective_temp >= 17:
+        clo = 0.50  # mild: trousers + t-shirt / thin shirt
+    elif effective_temp >= 14:
+        clo = 0.60  # Swedish spring/autumn mild: light long sleeve or thin layer
+    elif effective_temp >= 11:
+        clo = 0.75  # cool: hoodie/thin sweater
+    elif effective_temp >= 8:
+        clo = 0.90  # chilly: sweater or light jacket
+    elif effective_temp >= 5:
+        clo = 1.05  # cold-ish: jacket
+    elif effective_temp >= 2:
+        clo = 1.20  # cold: warmer jacket / layers
+    elif effective_temp >= -2:
+        clo = 1.40  # around freezing: winter jacket / gloves if exposed
+    elif effective_temp >= -6:
+        clo = 1.65  # cold winter: insulated jacket and warm accessories
+    elif effective_temp >= -10:
+        clo = 1.90  # proper winter clothing
+    else:
+        clo = 2.25  # severe cold
+
+    return max(0.25, min(clo, 2.75))
 
 def calculate_sleep_comfort(temp_c: float, humidity: float) -> int:
     """Calculate sleep comfort score (0-100) with enhanced humidity considerations."""
@@ -511,11 +627,23 @@ def calculate_absolute_humidity(temp_c: float, humidity: float) -> float:
 
 
 def calculate_frost_point(temp_c: float, humidity: float) -> float | None:
-    """Calculate frost point temperature."""
+    """Calculate frost point temperature using proper thermodynamic formula.
+    
+    Source: https://pon.fr/dzvents-alerte-givre-et-calcul-humidite-absolue/
+    """
     if temp_c >= 0:
         return None
+    
+    import math
+    
     dew_point = calculate_dew_point(temp_c, humidity)
-    return dew_point
+    T = temp_c + 273.15  # Convert to Kelvin
+    Td = dew_point + 273.15
+    
+    # Frost point calculation
+    frost_point = (Td + (2671.02 / ((2954.61 / T) + 2.193665 * math.log(T) - 13.3448)) - T) - 273.15
+    
+    return frost_point
 
 
 def get_dew_point_perception(dew_point: float) -> str:
@@ -615,17 +743,46 @@ def get_summer_simmer_perception(ssi: float) -> str:
 
 
 def calculate_moist_air_enthalpy(temp_c: float, humidity: float) -> float:
-    """Calculate moist air enthalpy in kJ/kg."""
-    dew_point = calculate_dew_point(temp_c, humidity)
+    """Calculate moist air enthalpy using ASHRAE 2021 standard.
+    
+    Uses different equations for ice (T < 0°C) and water (T >= 0°C).
+    Source: ASHRAE Fundamentals 2021 pg 1.5, 1.9, 1.10
+    """
     import math
     
-    pws = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5))
-    pw = pws * (humidity / 100.0)
+    patm = 101325  # standard pressure at sea-level (Pa)
+    c_to_k = 273.15
+    T = temp_c + c_to_k
     
-    w = 0.622 * pw / (1013.25 - pw)
+    # ASHRAE constants for saturation vapor pressure
+    if T < c_to_k:
+        # Ice equation (ASHRAE eq 5)
+        c1 = -5.6745359e03
+        c2 = 6.3925247e00
+        c3 = -9.6778430e-03
+        c4 = 6.2215701e-07
+        c5 = 2.0747825e-09
+        c6 = -9.4840240e-13
+        c7 = 4.1635019e00
+        p_ws = math.exp(c1/T + c2 + c3*T + c4*T**2 + c5*T**3 + c6*T**4 + c7*math.log(T))
+    else:
+        # Water equation (ASHRAE eq 6)
+        c8 = -5.8002206e03
+        c9 = 1.3914993e00
+        c10 = -4.8640239e-02
+        c11 = 4.1764768e-05
+        c12 = -1.4452093e-08
+        c13 = 6.5459673e00
+        p_ws = math.exp(c8/T + c9 + c10*T + c11*T**2 + c12*T**3 + c13*math.log(T))
     
-    h = 1.006 * temp_c + w * (2501 + 1.86 * temp_c)
-    return h
+    # Vapor pressure (ASHRAE eq 22)
+    p_w = humidity / 100 * p_ws
+    
+    # Humidity ratio (ASHRAE eq 20)
+    W = 0.621945 * p_w / (patm - p_w)
+    
+    # Enthalpy (ASHRAE eq 30)
+    return 1.006 * temp_c + W * (2501 + 1.86 * temp_c)
 
 
 def calculate_summer_scharlau(temp_c: float, humidity: float) -> float | None:
@@ -762,9 +919,23 @@ def get_seasonal_scharlau(temp_c: float, humidity: float, wind_ms: float, month:
 
 
 def calculate_thoms_discomfort_index(temp_c: float, humidity: float) -> float:
-    """Calculate Thom's discomfort index."""
-    di = temp_c - 0.55 * (1 - 0.01 * humidity) * (temp_c - 14.5)
-    return di
+    """Calculate Thom's discomfort index using wet bulb temperature approximation (Stull formula).
+    
+    More accurate than simple formula, accounts for complex humidity effects.
+    """
+    import math
+    
+    # Wet bulb temperature approximation (Stull 2011)
+    tw = (temp_c * math.atan(0.151977 * pow(humidity + 8.313659, 1/2)) +
+          math.atan(temp_c + humidity) - 
+          math.atan(humidity - 1.676331) +
+          pow(0.00391838 * humidity, 3/2) * math.atan(0.023101 * humidity) -
+          4.686035)
+    
+    # Thom's Discomfort Index
+    tdi = 0.5 * tw + 0.5 * temp_c
+    
+    return tdi
 
 
 def get_thoms_discomfort_perception(di: float) -> str:
@@ -812,6 +983,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             SmhiClothingInsulationSensor(coordinator),
             SmhiSleepComfortSensor(coordinator),
             SmhiExerciseSafetySensor(coordinator),
+            SmhiExerciseSafetyPerceptionSensor(coordinator),
         ])
     
     if entry.options.get(CONF_ENABLE_THERMAL_SENSORS, True):
@@ -819,6 +991,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             SmhiThermalComfortIndexSensor(coordinator),
             SmhiHumidityAnalysisSensor(coordinator),
             SmhiHeatStressLevelSensor(coordinator),
+            SmhiHeatStressPerceptionSensor(coordinator),
+            SmhiHumidityPerceptionSensor(coordinator),
         ])
     
     async_add_entities(sensors)
@@ -1171,7 +1345,7 @@ class SmhiWeatherImpactSensor(SmhiBaseSensor):
 
 
 class SmhiClothingInsulationSensor(SmhiBaseSensor):
-    """Sensor for recommended clothing insulation in CLO units."""
+    """Sensor for practical Swedish/Nordic outdoor clothing insulation."""
     _attr_name = "Practical: Clothing"
     _attr_native_unit_of_measurement = "CLO"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -1186,10 +1360,10 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
-        
+
         if temp is None or wind is None:
             return None
-        
+
         return round(calculate_clo_value(temp, wind), 1)
 
     @property
@@ -1197,28 +1371,90 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
-        
-        attrs = {}
-        if temp is not None and wind is not None:
-            clo = calculate_clo_value(temp, wind)
-            
-            if clo < 0.5:
-                attrs["clothing_description"] = "Shorts and t-shirt"
-            elif clo < 0.7:
-                attrs["clothing_description"] = "Light summer clothes"
-            elif clo < 1.0:
-                attrs["clothing_description"] = "Light pants and long sleeves"
-            elif clo < 1.5:
-                attrs["clothing_description"] = "Sweater or light jacket"
-            elif clo < 2.0:
-                attrs["clothing_description"] = "Winter jacket"
-            elif clo < 2.5:
-                attrs["clothing_description"] = "Heavy winter coat"
-            else:
-                attrs["clothing_description"] = "Arctic gear"
-        
-        return attrs
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        precip = clean_value(data.get("precipitation_amount_mean_deterministic"), parameter="precipitation_amount_mean_deterministic")
+        if precip is None:
+            precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
 
+        attrs: dict[str, Any] = {}
+        if temp is None or wind is None:
+            return attrs
+
+        clo = calculate_clo_value(temp, wind)
+
+        # Same wind adjustment as calculate_clo_value, exposed for debugging.
+        if wind < 3:
+            effective_temp = temp
+            wind_adjustment = 0.0
+        elif wind < 6:
+            effective_temp = temp - 1.0
+            wind_adjustment = -1.0
+        elif wind < 9:
+            effective_temp = temp - 2.0
+            wind_adjustment = -2.0
+        elif wind < 13:
+            effective_temp = temp - 3.5
+            wind_adjustment = -3.5
+        else:
+            effective_temp = temp - 5.0
+            wind_adjustment = -5.0
+
+        attrs["climate_profile"] = "Swedish/Nordic practical outdoor clothing"
+        attrs["assumption"] = "Light activity or normal commute, not sitting still outdoors"
+        attrs["temperature"] = round(temp, 1)
+        attrs["wind_speed"] = round(wind, 1)
+        attrs["effective_clothing_temperature"] = round(effective_temp, 1)
+        attrs["wind_adjustment"] = wind_adjustment
+
+        if clo < 0.40:
+            attrs["clothing_level"] = "Very light summer"
+            attrs["outfit_suggestion"] = "Shorts and T-shirt, or very light summer clothing"
+            attrs["example_garments"] = ["Shorts", "T-shirt", "Light shoes"]
+        elif clo < 0.55:
+            attrs["clothing_level"] = "Light summer"
+            attrs["outfit_suggestion"] = "T-shirt or thin shirt with light trousers"
+            attrs["example_garments"] = ["T-shirt", "Light trousers"]
+        elif clo < 0.70:
+            attrs["clothing_level"] = "Mild Swedish weather"
+            attrs["outfit_suggestion"] = "Trousers with T-shirt, thin long sleeve, or a very light extra layer"
+            attrs["example_garments"] = ["Trousers", "T-shirt", "Thin long sleeve"]
+        elif clo < 0.85:
+            attrs["clothing_level"] = "Cool but normal"
+            attrs["outfit_suggestion"] = "Trousers with hoodie, thin sweater, or overshirt"
+            attrs["example_garments"] = ["Trousers", "Hoodie", "Thin sweater"]
+        elif clo < 1.00:
+            attrs["clothing_level"] = "Chilly"
+            attrs["outfit_suggestion"] = "Sweater or light jacket; windproof shell if windy"
+            attrs["example_garments"] = ["Sweater", "Light jacket"]
+        elif clo < 1.20:
+            attrs["clothing_level"] = "Cold"
+            attrs["outfit_suggestion"] = "Jacket with normal layers"
+            attrs["example_garments"] = ["Jacket", "Sweater", "Trousers"]
+        elif clo < 1.45:
+            attrs["clothing_level"] = "Near freezing"
+            attrs["outfit_suggestion"] = "Warm jacket; consider gloves/hat for longer exposure"
+            attrs["example_garments"] = ["Warm jacket", "Sweater", "Gloves", "Hat"]
+        elif clo < 1.75:
+            attrs["clothing_level"] = "Winter"
+            attrs["outfit_suggestion"] = "Winter jacket with warm layers and accessories"
+            attrs["example_garments"] = ["Winter jacket", "Warm sweater", "Gloves", "Hat"]
+        elif clo < 2.10:
+            attrs["clothing_level"] = "Cold winter"
+            attrs["outfit_suggestion"] = "Insulated winter clothing, gloves, hat, warm footwear"
+            attrs["example_garments"] = ["Insulated jacket", "Thermal layer", "Warm boots"]
+        else:
+            attrs["clothing_level"] = "Severe cold"
+            attrs["outfit_suggestion"] = "Full winter layering with insulated outerwear and covered extremities"
+            attrs["example_garments"] = ["Heavy winter jacket", "Thermal base layer", "Warm boots", "Gloves", "Hat"]
+
+        if precip is not None and precip > 0:
+            attrs["precipitation_note"] = "Use waterproof outer layer if you will be outside in precipitation"
+        if humidity is not None and humidity > 90 and precip is not None and precip > 0:
+            attrs["humidity_warning"] = "Wet clothing loses insulation; prioritise waterproof/windproof outer layer"
+        if wind >= 6:
+            attrs["wind_note"] = f"Wind {wind:.1f} m/s: use a windproof outer layer rather than adding too many warm layers"
+
+        return attrs
 
 class SmhiSleepComfortSensor(SmhiBaseSensor):
     """Sensor for sleep comfort score."""
@@ -1308,6 +1544,32 @@ class SmhiExerciseSafetySensor(SmhiBaseSensor):
             attrs["feels_like_temperature"] = round(feels_like, 1)
         
         return attrs
+
+
+class SmhiExerciseSafetyPerceptionSensor(SmhiBaseSensor):
+    """ENUM sensor for exercise safety perception category."""
+    _attr_name = "Practical: Exercise Perception"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [e.value for e in ExerciseSafetyCategory]
+    _attr_icon = "mdi:run-fast"
+    _attr_translation_key = "exercise_perception"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_exercise_perception"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        
+        if temp is None or wind is None or humidity is None:
+            return None
+        
+        _, category_key = calculate_exercise_safety(temp, wind, humidity)
+        return category_key
 
 
 class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
@@ -1575,3 +1837,105 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
         
         return attrs
 
+
+
+class SmhiHeatStressPerceptionSensor(SmhiBaseSensor):
+    """ENUM sensor for heat stress risk level perception."""
+    _attr_name = "Thermal: Heat Stress Perception"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [e.value for e in RiskLevel]
+    _attr_icon = "mdi:sun-thermometer-outline"
+    _attr_translation_key = "heat_stress_perception"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_heat_stress_perception"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        
+        if temp is None or humidity is None:
+            return None
+        
+        # Calculate heat stress percentage
+        stress = 0
+        if temp >= 35:
+            stress += 100
+        elif temp >= 32:
+            stress += 80 + (temp - 32) * 7
+        elif temp >= 28:
+            stress += 50 + (temp - 28) * 7.5
+        elif temp >= 25:
+            stress += 30 + (temp - 25) * 6.5
+        elif temp >= 22:
+            stress += 15 + (temp - 22) * 5
+        elif temp >= 20:
+            stress += (temp - 20) * 7.5
+        elif temp >= 18:
+            stress += (temp - 18) * 2.5
+        
+        if humidity >= 85:
+            stress *= 1.4
+        elif humidity >= 75:
+            stress *= 1.3
+        elif humidity >= 65:
+            stress *= 1.2
+        elif humidity >= 50:
+            stress *= 1.1
+        
+        stress_pct = min(100, int(stress))
+        
+        # Return risk level enum
+        if stress_pct >= 80:
+            return RiskLevel.EXTREME_DANGER
+        elif stress_pct >= 60:
+            return RiskLevel.DANGER
+        elif stress_pct >= 40:
+            return RiskLevel.EXTREME_CAUTION
+        elif stress_pct >= 20:
+            return RiskLevel.CAUTION
+        else:
+            return RiskLevel.SAFE
+
+
+class SmhiHumidityPerceptionSensor(SmhiBaseSensor):
+    """ENUM sensor for humidity comfort perception."""
+    _attr_name = "Thermal: Humidity Perception"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [e.value for e in HumidityComfort]
+    _attr_icon = "mdi:water-percent"
+    _attr_translation_key = "humidity_perception"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_humidity_perception"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        
+        if temp is None or humidity is None:
+            return None
+        
+        dew_point = calculate_dew_point(temp, humidity)
+        
+        # Return humidity comfort enum
+        if dew_point >= 24:
+            return HumidityComfort.OPPRESSIVE
+        elif dew_point >= 21:
+            return HumidityComfort.VERY_HUMID
+        elif dew_point >= 18:
+            return HumidityComfort.HUMID
+        elif dew_point >= 13:
+            return HumidityComfort.COMFORTABLE
+        elif dew_point >= 10:
+            return HumidityComfort.PLEASANT
+        elif dew_point >= 5:
+            return HumidityComfort.DRY
+        else:
+            return HumidityComfort.VERY_DRY
