@@ -13,10 +13,29 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 - Thermal comfort indices with seasonal adaptation
 - Frost and ice risk assessment
 - Practical sensors for clothing, sleep, and exercise
-- All sensor groups can be individually enabled/disabled
-- Multi-language support (English, Swedish)
+- **Swedish climate calibration** - Thresholds optimized for Swedish weather (25°C = hot, not 35°C)
+- **Smart binary sensors** - Risk-based triggers (Frost >60%, Slippery >50%)
+- **Dynamic language support** - Attributes auto-translate to Swedish
+- All sensor groups individually configurable
 
 **Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
+
+## Swedish Climate Calibration
+
+All sensors use temperature thresholds adapted for Swedish weather patterns:
+
+- **25°C** = Hot (international: 35°C)
+- **30°C** = Extreme heat
+- **18°C** = Ideal exercise temperature
+- **22°C** = Heat stress begins (international: 25°C)
+- **-10°C** = Moderate cold risk (common winter)
+- **-25°C** = Extreme cold danger
+
+**Smart Binary Sensors:**
+- Frost: Possible triggers at 60% risk
+- Slippery: Conditions triggers at 50% risk
+
+*Detailed formula explanations in Advanced Formula Improvements below.*
 
 ## Installation
 
@@ -112,6 +131,52 @@ After setup, click Configure on the SMHI integration:
 - sensor.smhi_humidity_analysis - Thermal: Humidity - Dew point temperature with humidity metrics (°C)
 - sensor.smhi_heat_stress_level - Thermal: Heat Stress - Heat stress assessment (0-100%)
 
+## Advanced Formula Improvements
+
+All optional sensors use scientifically-enhanced calculations optimized for Swedish conditions:
+
+### Frost Risk (Sigmoid Curve)
+- **Smooth 0-100% transition** instead of binary jumps
+- Peak risk at 2°C with gradual decrease
+- Considers dew point spread (closer = higher frost risk)
+- Enhanced humidity bonuses (>80% RH increases risk)
+
+### Slippery Risk (Peak at 0°C)
+- **Most dangerous at 0°C** where ice repeatedly forms/melts
+- Weighted scoring: Temperature (50%), Frozen precipitation (30%), Intensity (20%)
+- Gradual risk curve from -10°C to +5°C
+
+### Weather Impact (Danger Prioritized)
+- **Wind: 40%** - Most dangerous factor (>25 m/s = storm)
+- **Precipitation: 30%** - Heavy rain/snow impact
+- **Visibility: 20%** - Safety critical (<1km dangerous)
+- **Temperature: 10%** - Extreme cold/heat contribution
+
+### Sleep Comfort (Humidity Enhanced)
+- **Optimal: 16-19°C + 40-60% RH**
+- Detailed humidity penalties (>70% disrupts sleep significantly)
+- Weight: 70% temperature, 30% humidity
+- High humidity more impactful than in basic formulas
+
+### Exercise Safety (Multi-Factor)
+- **Dehydration risk** at high humidity (>85% + 20°C+)
+- **Dry air caution** (<20% RH affects breathing)
+- **Extreme danger zones**: >35°C or <-30°C
+- Categories: Ideal, Safe, Cool, Moderate Risk, Caution, High Risk, Extreme Risk, Extreme Danger
+
+## Language Support
+
+Automatically detects Home Assistant language and translates sensor attributes:
+
+**Translated elements:**
+- Exercise categories (Ideal/Idealt, Safe/Säkert, Caution/Varning)
+- Risk levels (Danger/Fara, Extreme Caution/Extrem försiktighet)
+- Recommendations (Avoid outdoor activity/Undvik utomhusaktivitet)
+- Thermal indices (Heat Index/Värmeindex, Summer Comfort/Sommarkomfort)
+- Humidity comfort (Oppressive/Kvävande, Comfortable/Bekvämt)
+
+**Enable Swedish:** Settings → System → General → Language → Svenska
+
 ## Thermal Comfort Details
 
 ### Seasonal Scharlau Perception
@@ -161,22 +226,32 @@ All weather data from SMHI's open API:
 ## Troubleshooting
 
 **Integration won't add**
-- Verify coordinates are within SMHI coverage area (Sweden and nearby regions)
-- Check internet connectivity
+1. Verify coordinates within SMHI coverage (Sweden and nearby regions)
+2. Check internet connectivity
+3. Ensure valid coordinates (-90 to 90 latitude, -180 to 180 longitude)
 
 **Stale data warnings**
-- `binary_sensor.smhi_api_problem` will be ON
+- `binary_sensor.smhi_api_problem` turns ON during issues
 - Check `last_error` attribute for details
-- SMHI API may be temporarily unavailable
-- Integration will resume automatically when API is accessible
+- Auto-resumes when API becomes accessible
 
 **Missing sensors**
-- Check integration options (Configure button)
-- Enable desired sensor groups
+1. Settings → Devices & Services
+2. Find SMHI integration → Configure
+3. Enable desired sensor groups → Submit
+
+**Sensors show "null" or "unavailable"**
+- Normal behavior - attributes only appear when relevant
+- Example: Heat stress shows 0% below 18°C (not applicable)
 
 **Wrong location**
 - Reconfigure integration to update coordinates
-- SMHI uses nearest grid point, which may differ slightly from exact coordinates
+- SMHI uses nearest grid point (shown during setup)
+
+**Language not switching**
+- Settings → System → General → Language
+- Applies to sensor attributes only (not UI)
+- Restart Home Assistant if needed
 
 ## Contributing
 
@@ -195,4 +270,3 @@ Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index)
 ## Disclaimer
 
 Not affiliated with SMHI. Weather data provided by SMHI's open data API. For critical decisions, consult official weather warnings.
-
