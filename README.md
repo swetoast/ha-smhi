@@ -16,6 +16,8 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 - All sensor groups can be individually enabled/disabled
 - Multi-language support (English, Swedish)
 
+**Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
+
 ## Installation
 
 ### HACS
@@ -48,7 +50,9 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 4. Choose location method:
    - Use Home Assistant's home location, or
    - Specify custom latitude/longitude coordinates
-5. Configure update interval and forecast steps
+5. Confirm location details (shows grid point and API status)
+6. Choose which sensor groups to enable (all enabled by default)
+7. Done - integration is ready to use
 
 ### Options
 
@@ -80,33 +84,33 @@ After setup, click Configure on the SMHI integration:
 
 ### Comfort Sensors
 
-- sensor.smhi_feels_like - Apparent temperature combining wind chill and heat index (°C)
+- sensor.smhi_feels_like - Comfort: Feels Like - Apparent temperature combining wind chill and heat index (°C)
 
 ### Frost Sensors
 
-- sensor.smhi_frost_risk - Frost probability percentage (0-100%)
-- binary_sensor.smhi_frost_possible - Frost conditions likely (ON/OFF)
+- sensor.smhi_frost_risk - Frost: Risk - Frost probability percentage (0-100%)
+- binary_sensor.smhi_frost_possible - Frost: Possible - Frost conditions likely (ON/OFF)
 
 ### Slippery Sensors
 
-- sensor.smhi_slippery_risk - Ice/snow road danger percentage (0-100%)
-- binary_sensor.smhi_slippery_conditions - Roads likely slippery (ON/OFF)
+- sensor.smhi_slippery_risk - Slippery: Risk - Ice/snow road danger percentage (0-100%)
+- binary_sensor.smhi_slippery_conditions - Slippery: Conditions - Roads likely slippery (ON/OFF)
 
 ### Impact Sensor
 
-- sensor.smhi_weather_impact - Overall weather severity score (0-100%)
+- sensor.smhi_weather_impact - Impact: Severity - Overall weather severity score (0-100%)
 
 ### Practical Sensors
 
-- sensor.smhi_clothing_insulation - Recommended clothing insulation in CLO units
-- sensor.smhi_sleep_comfort - Sleep comfort score based on temperature and humidity (%)
-- sensor.smhi_exercise_safety - Outdoor exercise safety score (%)
+- sensor.smhi_clothing_insulation - Practical: Clothing - Recommended clothing insulation in CLO units
+- sensor.smhi_sleep_comfort - Practical: Sleep - Sleep comfort score based on temperature and humidity (%)
+- sensor.smhi_exercise_safety - Practical: Exercise - Outdoor exercise safety score (%)
 
 ### Thermal Comfort Sensors
 
-- sensor.smhi_thermal_comfort - Auto-selected thermal comfort index (°C)
-- sensor.smhi_humidity_analysis - Dew point temperature with humidity metrics (°C)
-- sensor.smhi_heat_stress_level - Heat stress assessment (0-100%)
+- sensor.smhi_thermal_comfort - Thermal: Comfort - Auto-selected thermal comfort index (°C)
+- sensor.smhi_humidity_analysis - Thermal: Humidity - Dew point temperature with humidity metrics (°C)
+- sensor.smhi_heat_stress_level - Thermal: Heat Stress - Heat stress assessment (0-100%)
 
 ## Thermal Comfort Details
 
