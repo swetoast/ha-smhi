@@ -6,28 +6,30 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 
 ## Features
 
-- Weather entity with current conditions and hourly forecasts
+- Weather entity with current conditions and hourly/daily/twice-daily forecasts
 - Precipitation tracking with ensemble predictions
 - Cloud coverage analysis by altitude
-- Thunderstorm probability monitoring
+- Thunderstorm probability monitoring with risk levels
 - Thermal comfort indices with seasonal adaptation
 - Frost and ice risk assessment
 - Practical sensors for clothing, sleep, and exercise
-- **Swedish climate calibration** - Thresholds optimized for Swedish weather (25°C = hot, not 35°C)
+- **4 detailed safety sensors** - Black ice, fog, frozen precipitation, rapid weather changes
+- **Swedish climate calibration** - Thresholds optimized for Swedish weather (22°C = heat stress begins, 25°C = hot)
+- **Weather-aware clothing** - Considers precipitation, clouds, humidity, forecast trends
 - **Smart binary sensors** - Risk-based triggers (Frost >60%, Slippery >50%)
 - **Dynamic language support** - Attributes auto-translate to Swedish
 - All sensor groups individually configurable
 
-**Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
+**Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal, detailed) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
 
 ## Swedish Climate Calibration
 
 All sensors use temperature thresholds adapted for Swedish weather patterns:
 
+- **22°C** = Heat stress begins, heat index activates (international: 27°C)
 - **25°C** = Hot (international: 35°C)
 - **30°C** = Extreme heat
 - **18°C** = Ideal exercise temperature
-- **22°C** = Heat stress begins (international: 25°C)
 - **-10°C** = Moderate cold risk (common winter)
 - **-25°C** = Extreme cold danger
 
@@ -70,7 +72,7 @@ All sensors use temperature thresholds adapted for Swedish weather patterns:
    - Use Home Assistant's home location, or
    - Specify custom latitude/longitude coordinates
 5. Confirm location details (shows grid point and API status)
-6. Choose which sensor groups to enable (all enabled by default)
+6. Choose which sensor groups to enable (all enabled by default except detailed sensors)
 7. Done - integration is ready to use
 
 ### Options
@@ -79,57 +81,69 @@ After setup, click Configure on the SMHI integration:
 
 - **Forecast Steps** (1-200, default 70): Number of hourly forecast steps
 - **Update Interval** (5-180 minutes, default 30): How often to fetch data
-- **Enable Comfort Sensors** (default ON): Feels-like temperature
+- **Enable Comfort Sensors** (default ON): Feels-like temperature with Swedish-adapted heat index
 - **Enable Frost Sensors** (default ON): Frost risk % and binary sensor
 - **Enable Slippery Sensors** (default ON): Ice/snow road risk % and binary sensor
 - **Enable Impact Sensor** (default ON): Weather severity score
-- **Enable Practical Sensors** (default ON): Clothing, sleep, exercise
+- **Enable Practical Sensors** (default ON): Clothing, sleep, exercise recommendations
 - **Enable Thermal Sensors** (default ON): Advanced thermal comfort indices
+- **Enable Detailed Sensors** (default OFF): 4 safety sensors (black ice, fog, frozen precipitation, weather changes)
 
 ## Entities
 
 ### Weather Entity
 
-- weather.smhi - Current conditions with hourly forecasts (temperature, pressure, humidity, wind, cloud coverage, precipitation, visibility)
+- weather.smhi - Current conditions with hourly/daily/twice-daily forecasts
 
 ### Core Sensors (Always Active)
 
-- sensor.smhi_precipitation - Precipitation amount in mm with ensemble forecasts (mean, min, max, median)
-- sensor.smhi_clouds - Cloud coverage in octas (0-8) with altitude breakdown (low, medium, high)
-- sensor.smhi_thunderstorm_probability - Probability of thunderstorms (%)
+- sensor.smhi_precipitation - Precipitation amount (mm) with ensemble predictions (mean, min, max, median)
+- sensor.smhi_clouds - Cloud coverage (octas) with altitude breakdown (low, medium, high)
+- sensor.smhi_thunderstorm_probability - Thunderstorm probability (%) with risk level attribute
 - sensor.smhi_symbol_code - SMHI weather symbol code (1-27)
-- sensor.smhi_metadata - API metadata and grid point information
-- binary_sensor.smhi_api_problem - API health status (ON when issues detected)
+- sensor.smhi_metadata - API metadata and diagnostics
+- binary_sensor.smhi_api_problem - API health status
 
-### Comfort Sensors
+### Comfort Sensors (Optional, Default ON)
 
-- sensor.smhi_feels_like - Comfort: Feels Like - Apparent temperature combining wind chill and heat index (°C)
+- sensor.smhi_feels_like - Apparent temperature with Swedish-adapted heat index (°C)
 
-### Frost Sensors
+### Frost Sensors (Optional, Default ON)
 
-- sensor.smhi_frost_risk - Frost: Risk - Frost probability percentage (0-100%)
-- binary_sensor.smhi_frost_possible - Frost: Possible - Frost conditions likely (ON/OFF)
+- sensor.smhi_frost_risk - Frost probability with smooth sigmoid curve (0-100%)
+- binary_sensor.smhi_frost_possible - Frost likely (triggers at 60% risk)
 
-### Slippery Sensors
+### Slippery Sensors (Optional, Default ON)
 
-- sensor.smhi_slippery_risk - Slippery: Risk - Ice/snow road danger percentage (0-100%)
-- binary_sensor.smhi_slippery_conditions - Slippery: Conditions - Roads likely slippery (ON/OFF)
+- sensor.smhi_slippery_risk - Ice/snow road danger (0-100%)
+- binary_sensor.smhi_slippery_conditions - Slippery roads likely (triggers at 50% risk)
 
-### Impact Sensor
+### Impact Sensor (Optional, Default ON)
 
-- sensor.smhi_weather_impact - Impact: Severity - Overall weather severity score (0-100%)
+- sensor.smhi_weather_impact - Overall weather severity (0-100%)
 
-### Practical Sensors
+### Practical Sensors (Optional, Default ON)
 
-- sensor.smhi_clothing_insulation - Practical: Clothing - Recommended clothing insulation in CLO units
-- sensor.smhi_sleep_comfort - Practical: Sleep - Sleep comfort score based on temperature and humidity (%)
-- sensor.smhi_exercise_safety - Practical: Exercise - Outdoor exercise safety score (%)
+- sensor.smhi_practical_clothing - Weather-aware clothing recommendations (CLO units)
+- sensor.smhi_practical_sleep - Sleep comfort score (%)
+- sensor.smhi_practical_exercise - Outdoor exercise safety (%)
+- sensor.smhi_practical_exercise_perception - Exercise safety category (enum)
 
-### Thermal Comfort Sensors
+### Thermal Sensors (Optional, Default ON)
 
-- sensor.smhi_thermal_comfort - Thermal: Comfort - Auto-selected thermal comfort index (°C)
-- sensor.smhi_humidity_analysis - Thermal: Humidity - Dew point temperature with humidity metrics (°C)
-- sensor.smhi_heat_stress_level - Thermal: Heat Stress - Heat stress assessment (0-100%)
+- sensor.smhi_thermal_comfort - Auto-selected comfort index (°C)
+- sensor.smhi_thermal_comfort_perception - Seasonal comfort category (enum)
+- sensor.smhi_humidity_analysis - Dew point with humidity metrics (°C)
+- sensor.smhi_humidity_perception - Humidity comfort category (enum)
+- sensor.smhi_heat_stress_level - Heat stress assessment (0-100%)
+- sensor.smhi_heat_stress_perception - Heat stress category (enum)
+
+### Detailed Safety Sensors (Optional, Default OFF)
+
+- sensor.smhi_frozen_precipitation_probability - Snow/ice probability (%) with expectation levels
+- sensor.smhi_safety_black_ice_risk - Black ice danger assessment (none/low/moderate/high/very_high)
+- sensor.smhi_safety_fog_probability - Fog likelihood based on dew point spread (0-100%)
+- sensor.smhi_safety_weather_change_alert - Rapid weather change detection (stable/minor/moderate/significant/severe)
 
 ## Advanced Formula Improvements
 
@@ -164,6 +178,29 @@ All optional sensors use scientifically-enhanced calculations optimized for Swed
 - **Extreme danger zones**: >35°C or <-30°C
 - Categories: Ideal, Safe, Cool, Moderate Risk, Caution, High Risk, Extreme Risk, Extreme Danger
 
+### Practical Clothing (Weather-Aware)
+- **Context-sensitive recommendations** based on:
+  • Temperature and wind (JAG/TI wind chill)
+  • Cloud cover (sunny feels +1.5°C warmer, cloudy -0.5°C)
+  • Humidity (high humidity feels cooler)
+  • Precipitation (rain/snow requires waterproof layer)
+  • Forecast trend (dress for where weather is going)
+- **Conservative recommendations** - More realistic for Swedish outdoor use vs indoor sedentary standards
+- **Activity-adjusted** - Light activity (walking/commuting) generates extra heat
+- Example: 16°C + partly cloudy + 2 m/s wind → "Long sleeve shirt or thin sweater" (not shorts!)
+
+### Heat Index (Swedish-Adapted)
+- **Activates at 22°C** (not 27°C like standard NWS formula)
+- Uses simplified humidity discomfort formula for mild heat (22-27°C)
+- Full Steadman formula for extreme heat (27°C+)
+- Reflects Swedish heat sensitivity - 25°C + 75% humidity feels uncomfortable
+
+### Detailed Safety Sensors
+- **Black Ice Risk**: Combines temperature (-4°C to +2°C danger zone), precipitation, humidity, dew point spread
+- **Fog Probability**: Based on temperature-dew point spread (<2°C = high risk) + humidity
+- **Frozen Precipitation**: Probability with expectation levels (very unlikely to very likely)
+- **Weather Change Alert**: Compares current vs 1hr/3hr forecast for rapid changes in temp, pressure, wind, precipitation
+
 ## Language Support
 
 Automatically detects Home Assistant language and translates sensor attributes:
@@ -197,7 +234,7 @@ Automatically adapts comfort perception based on season:
 
 ### Other Thermal Indices
 
-- **Heat Index**: Combines temperature and humidity (Steadman formula)
+- **Heat Index**: Swedish-adapted - Activates at 22°C (not 27°C). Simplified formula for mild heat (22-27°C), full Steadman formula for extreme heat (27°C+)
 - **Humidex**: Canadian humidity index using dew point
 - **Summer Simmer**: Heat stress indicator for warm weather
 - **Relative Strain**: Discomfort for 26-35°C range
@@ -239,6 +276,7 @@ All weather data from SMHI's open API:
 1. Settings → Devices & Services
 2. Find SMHI integration → Configure
 3. Enable desired sensor groups → Submit
+4. Restart Home Assistant
 
 **Sensors show "null" or "unavailable"**
 - Normal behavior - attributes only appear when relevant
@@ -265,7 +303,7 @@ MIT License - see LICENSE file.
 
 Weather data: SMHI (Sveriges Meteorologiska och Hydrologiska Institut)
 
-Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index), Magnus (Dew Point), Scharlau Seasonal Indices, Thom's Discomfort Index, Summer Simmer Index
+Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index - Swedish-adapted), Magnus (Dew Point), Scharlau Seasonal Indices, Thom's Discomfort Index, Summer Simmer Index
 
 ## Disclaimer
 
