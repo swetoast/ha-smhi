@@ -13,11 +13,8 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 - Thermal comfort indices with seasonal adaptation
 - Frost and ice risk assessment
 - Practical sensors for clothing, sleep, and exercise
-- **4 detailed safety sensors** - Black ice, fog, frozen precipitation, rapid weather changes
-- **Swedish climate calibration** - Thresholds optimized for Swedish weather (22°C = heat stress begins, 25°C = hot)
-- **Weather-aware clothing** - Considers precipitation, clouds, humidity, forecast trends
-- **Smart binary sensors** - Risk-based triggers (Frost >60%, Slippery >50%)
-- **Dynamic language support** - Attributes auto-translate to Swedish
+- 4 detailed safety sensors (black ice, fog, frozen precipitation, weather changes)
+- Weather-aware clothing recommendations
 - All sensor groups individually configurable
 
 **Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal, detailed) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
@@ -81,7 +78,7 @@ After setup, click Configure on the SMHI integration:
 
 - **Forecast Steps** (1-200, default 70): Number of hourly forecast steps
 - **Update Interval** (5-180 minutes, default 30): How often to fetch data
-- **Enable Comfort Sensors** (default ON): Feels-like temperature with Swedish-adapted heat index
+- **Enable Comfort Sensors** (default ON): Feels-like temperature
 - **Enable Frost Sensors** (default ON): Frost risk % and binary sensor
 - **Enable Slippery Sensors** (default ON): Ice/snow road risk % and binary sensor
 - **Enable Impact Sensor** (default ON): Weather severity score
@@ -106,7 +103,7 @@ After setup, click Configure on the SMHI integration:
 
 ### Comfort Sensors (Optional, Default ON)
 
-- sensor.smhi_feels_like - Apparent temperature with Swedish-adapted heat index (°C)
+- sensor.smhi_feels_like - Apparent temperature (°C)
 
 ### Frost Sensors (Optional, Default ON)
 
@@ -147,7 +144,7 @@ After setup, click Configure on the SMHI integration:
 
 ## Advanced Formula Improvements
 
-All optional sensors use scientifically-enhanced calculations optimized for Swedish conditions:
+All optional sensors use enhanced calculations optimized for Swedish climate:
 
 ### Frost Risk (Sigmoid Curve)
 - **Smooth 0-100% transition** instead of binary jumps
@@ -170,7 +167,6 @@ All optional sensors use scientifically-enhanced calculations optimized for Swed
 - **Optimal: 16-19°C + 40-60% RH**
 - Detailed humidity penalties (>70% disrupts sleep significantly)
 - Weight: 70% temperature, 30% humidity
-- High humidity more impactful than in basic formulas
 
 ### Exercise Safety (Multi-Factor)
 - **Dehydration risk** at high humidity (>85% + 20°C+)
@@ -179,19 +175,20 @@ All optional sensors use scientifically-enhanced calculations optimized for Swed
 - Categories: Ideal, Safe, Cool, Moderate Risk, Caution, High Risk, Extreme Risk, Extreme Danger
 
 ### Practical Clothing (Weather-Aware)
-- **Context-sensitive recommendations** based on:
-  • Temperature and wind (JAG/TI wind chill)
-  • Cloud cover (sunny feels +1.5°C warmer, cloudy -0.5°C)
-  • Humidity (high humidity feels cooler)
-  • Precipitation (rain/snow requires waterproof layer)
-  • Forecast trend (dress for where weather is going)
-- **Conservative recommendations** - More realistic for Swedish outdoor use vs indoor sedentary standards
-- **Activity-adjusted** - Light activity (walking/commuting) generates extra heat
-- Example: 16°C + partly cloudy + 2 m/s wind → "Long sleeve shirt or thin sweater" (not shorts!)
+**Context-sensitive recommendations** based on:
+- Temperature and wind (JAG/TI wind chill)
+- Cloud cover (sunny feels +1.5°C warmer, cloudy -0.5°C)
+- Humidity (high humidity feels cooler)
+- Precipitation (rain/snow requires waterproof layer)
+- Forecast trend (dress for where weather is going)
 
-### Heat Index (Swedish-Adapted)
-- **Activates at 22°C** (not 27°C like standard NWS formula)
-- Uses simplified humidity discomfort formula for mild heat (22-27°C)
+**Conservative for outdoor activity** - More realistic than indoor sedentary standards. Light activity (walking/commuting) generates extra heat.
+
+Example: 16°C + partly cloudy + 2 m/s wind → "Long sleeve shirt or thin sweater" (not shorts!)
+
+### Heat Index
+**Activates at 22°C** (not 27°C like standard NWS formula):
+- Simplified humidity discomfort formula for mild heat (22-27°C)
 - Full Steadman formula for extreme heat (27°C+)
 - Reflects Swedish heat sensitivity - 25°C + 75% humidity feels uncomfortable
 
@@ -234,7 +231,6 @@ Automatically adapts comfort perception based on season:
 
 ### Other Thermal Indices
 
-- **Heat Index**: Swedish-adapted - Activates at 22°C (not 27°C). Simplified formula for mild heat (22-27°C), full Steadman formula for extreme heat (27°C+)
 - **Humidex**: Canadian humidity index using dew point
 - **Summer Simmer**: Heat stress indicator for warm weather
 - **Relative Strain**: Discomfort for 26-35°C range
@@ -303,7 +299,7 @@ MIT License - see LICENSE file.
 
 Weather data: SMHI (Sveriges Meteorologiska och Hydrologiska Institut)
 
-Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index - Swedish-adapted), Magnus (Dew Point), Scharlau Seasonal Indices, Thom's Discomfort Index, Summer Simmer Index
+Thermal comfort formulas: Environment Canada (Wind Chill), Steadman (Heat Index), Magnus (Dew Point), Scharlau Seasonal Indices, Thom's Discomfort Index, Summer Simmer Index
 
 ## Disclaimer
 
