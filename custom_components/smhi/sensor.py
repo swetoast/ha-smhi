@@ -223,15 +223,39 @@ def calculate_wind_chill(temp_c: float, wind_kmh: float) -> float | None:
 
 
 def calculate_heat_index(temp_c: float, humidity: float) -> float | None:
-    """Calculate heat index using full NWS formula with adjustments.
+    """Calculate heat index adapted for Swedish climate sensitivity.
     
-    Source: http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
+    Swedes are not acclimatized to heat - 22°C with humidity feels warm.
+    Uses simplified formula for mild heat (22-27°C) and full NWS formula for extreme heat (27°C+).
+    
+    Source: Adapted from http://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
     """
-    if temp_c < 27:
+    # Swedish adaptation: start at 22°C instead of 27°C
+    if temp_c < 22:
         return None
     
     import math
     
+    # For mild Swedish heat (22-27°C): simple humidity discomfort formula
+    if temp_c < 27:
+        # Simplified heat index for moderate temperatures
+        # Base: temperature feels like itself
+        # Add humidity penalty: high humidity makes it feel warmer
+        humidity_factor = (humidity - 40) / 10  # 0 at 40%, +6 at 100%
+        
+        if humidity > 60:
+            # Noticeable humidity effect
+            heat_index = temp_c + (humidity_factor * 0.5)
+        elif humidity > 50:
+            # Slight humidity effect  
+            heat_index = temp_c + (humidity_factor * 0.3)
+        else:
+            # Dry heat - minimal effect
+            heat_index = temp_c + (humidity_factor * 0.1)
+        
+        return heat_index
+    
+    # For extreme heat (27°C+): use full NWS formula
     # Convert to Fahrenheit for calculation
     fahrenheit = temp_c * 9/5 + 32
     
