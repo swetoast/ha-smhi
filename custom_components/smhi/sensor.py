@@ -1552,39 +1552,105 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         elif precip_prob and precip_prob > 50:
             decision_factors.append(f"Rain risk {int(precip_prob)}%")
         
-        # Check forecast for later conditions (6-12 hours ahead)
+        # Check forecast for later conditions with adaptive time windows
+        # Morning checks full day, afternoon checks evening, etc.
         carry_extra_layer = False
         later_note = None
         try:
             payload = self.coordinator.current_payload()
             if payload and "timeSeries" in payload:
                 series = payload["timeSeries"]
-                # Look 6-12 hours ahead
-                if len(series) > 6:
-                    future_6h = series[6].get("data", {})
-                    future_temp_6h = future_6h.get("air_temperature")
-                    future_precip_6h = future_6h.get("precipitation_amount_mean")
-                    future_precip_prob_6h = future_6h.get("probability_of_precipitation")
-                    
-                    if future_temp_6h is not None:
-                        temp_drop = temp - future_temp_6h
-                        if temp_drop > 5:
-                            carry_extra_layer = True
-                            later_note = f"Temperature drops to {future_temp_6h:.1f}°C later - bring extra layer"
-                            decision_factors.append("Temperature dropping later")
-                        elif temp_drop < -3:
-                            decision_factors.append("Temperature rising later")
-                    
-                    if future_precip_6h and future_precip_6h > 0.5:
+                
+                # Determine forecast windows based on time of day
+                current_hour = datetime.now().hour
+                if 6 <= current_hour < 12:
+                    # Morning: check full day (3h, 6h, 9h, 12h)
+                    forecast_windows = [3, 6, 9, 12]
+                elif 12 <= current_hour < 18:
+                    # Afternoon: check evening (3h, 6h, 9h)
+                    forecast_windows = [3, 6, 9]
+                elif 18 <= current_hour < 24:
+                    # Evening: check night (3h, 6h)
+                    forecast_windows = [3, 6]
+                else:
+                    # Night: check short-term (3h)
+                    forecast_windows = [3]
+                
+                # Track worst-case conditions across all windows
+                coldest_temp = None
+                coldest_temp_hours = None
+                max_precip = 0
+                max_precip_hours = None
+                high_rain_prob = False
+                rain_prob_hours = None
+                
+                for hours_ahead in forecast_windows:
+                    if hours_ahead < len(series):
+                        future = series[hours_ahead].get("data", {})
+                        future_temp = future.get("air_temperature")
+                        future_precip = future.get("precipitation_amount_mean")
+                        future_precip_prob = future.get("probability_of_precipitation")
+                        
+                        # Track coldest temperature
+                        if future_temp is not None:
+                            if coldest_temp is None or future_temp < coldest_temp:
+                                coldest_temp = future_temp
+                                coldest_temp_hours = hours_ahead
+                        
+                        # Track heaviest precipitation
+                        if future_precip and future_precip > max_precip:
+                            max_precip = future_precip
+                            max_precip_hours = hours_ahead
+                        
+                        # Track high rain probability
+                        if future_precip_prob and future_precip_prob > 60 and not high_rain_prob:
+                            high_rain_prob = True
+                            rain_prob_hours = hours_ahead
+                
+                # Build comprehensive later_note from findings
+                later_events = []
+                
+                # Check for significant temperature drop
+                if coldest_temp is not None and temp is not None:
+                    temp_drop = temp - coldest_temp
+                    if temp_drop > 5:
                         carry_extra_layer = True
-                        if later_note:
-                            later_note += " and rain expected"
+                        if coldest_temp_hours <= 6:
+                            later_events.append(f"temperature drops to {coldest_temp:.1f}°C soon")
                         else:
-                            later_note = f"Rain expected later ({future_precip_6h:.1f} mm) - bring waterproof"
-                    elif future_precip_prob_6h and future_precip_prob_6h > 60:
-                        carry_extra_layer = True
-                        if not later_note:
-                            later_note = f"High rain risk later ({int(future_precip_prob_6h)}%) - bring waterproof"
+                            later_events.append(f"temperature drops to {coldest_temp:.1f}°C by evening")
+                        decision_factors.append("Temperature dropping later")
+                    elif temp_drop < -3:
+                        decision_factors.append("Temperature rising later")
+                
+                # Check for precipitation
+                if max_precip > 0.5:
+                    carry_extra_layer = True
+                    if max_precip_hours <= 3:
+                        later_events.append(f"rain expected soon ({max_precip:.1f}mm)")
+                    elif max_precip_hours <= 6:
+                        later_events.append(f"rain expected in {max_precip_hours}h ({max_precip:.1f}mm)")
+                    else:
+                        later_events.append(f"rain expected later ({max_precip:.1f}mm)")
+                    decision_factors.append("Rain expected later")
+                elif high_rain_prob:
+                    carry_extra_layer = True
+                    if rain_prob_hours <= 3:
+                        later_events.append("rain likely soon")
+                    else:
+                        later_events.append(f"rain likely in {rain_prob_hours}h")
+                    decision_factors.append("Rain risk later")
+                
+                # Combine events into note
+                if later_events:
+                    later_note = " and ".join(later_events).capitalize()
+                    if len(later_events) > 1:
+                        later_note += " - bring waterproof and extra layer"
+                    elif "rain" in later_note.lower():
+                        later_note += " - bring waterproof"
+                    else:
+                        later_note += " - bring extra layer"
+                        
         except:
             pass
         
