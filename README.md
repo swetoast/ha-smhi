@@ -11,10 +11,11 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 - Cloud coverage analysis by altitude
 - Thunderstorm probability monitoring with risk levels
 - Thermal comfort indices with seasonal adaptation
-- Frost and ice risk assessment
+- Frost and ice risk assessment with intelligent binary sensors
 - Practical sensors for clothing, sleep, and exercise
 - 4 detailed safety sensors (black ice, fog, frozen precipitation, weather changes)
-- Weather-aware clothing recommendations
+- **Advanced clothing sensor** with layered breakdown and forecast awareness
+- **Smart binary sensors** with hysteresis and time-of-day awareness
 - All sensor groups individually configurable
 
 **Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal, detailed) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
@@ -30,9 +31,11 @@ All sensors use temperature thresholds adapted for Swedish weather patterns:
 - **-10°C** = Moderate cold risk (common winter)
 - **-25°C** = Extreme cold danger
 
-**Smart Binary Sensors:**
-- Frost: Possible triggers at 60% risk
-- Slippery: Conditions triggers at 50% risk
+**Smart Binary Sensors (with Hysteresis):**
+- Frost: Night threshold 55% (more sensitive), day threshold 65% (less sensitive), turns off at 45%/55%
+- Slippery: Triggers at 50%, turns off at 40% (prevents rapid on/off cycling)
+
+*Hysteresis prevents flapping. Time-of-day awareness for frost matches real-world patterns (coldest at dawn).*
 
 *Detailed formula explanations in Advanced Formula Improvements below.*
 
@@ -121,7 +124,13 @@ After setup, click Configure on the SMHI integration:
 
 ### Practical Sensors (Optional, Default ON)
 
-- sensor.smhi_practical_clothing - Weather-aware clothing recommendations (CLO units)
+- sensor.smhi_practical_clothing - Weather-aware clothing recommendations (CLO units) with layered breakdown
+  - **Attributes:** base_layer, mid_layer, outer_layer, bottoms, footwear, accessories
+  - **Rain protection:** rain_note, waterproof_layer, umbrella recommendation
+  - **Wind protection:** wind_note with Swedish layering philosophy (windproof > thick layers)
+  - **Forecast awareness:** carry_extra_layer, later_note (checks 6 hours ahead for temperature drops/rain)
+  - **Context:** effective_temperature, sun_adjustment, activity_mode (auto-detected from time)
+  - **Transparency:** decision_factors list, confidence level
 - sensor.smhi_practical_sleep - Sleep comfort score (%)
 - sensor.smhi_practical_exercise - Outdoor exercise safety (%)
 - sensor.smhi_practical_exercise_perception - Exercise safety category (enum)
@@ -152,10 +161,20 @@ All optional sensors use enhanced calculations optimized for Swedish climate:
 - Considers dew point spread (closer = higher frost risk)
 - Enhanced humidity bonuses (>80% RH increases risk)
 
+**Binary Sensor (with Hysteresis & Time Awareness):**
+- Night (22:00-08:00): Triggers at 55%, turns off at 45% (frost peaks at dawn)
+- Day (08:00-22:00): Triggers at 65%, turns off at 55% (sun reduces risk)
+- Hysteresis prevents rapid on/off cycling when hovering near threshold
+
 ### Slippery Risk (Peak at 0°C)
 - **Most dangerous at 0°C** where ice repeatedly forms/melts
 - Weighted scoring: Temperature (50%), Frozen precipitation (30%), Intensity (20%)
 - Gradual risk curve from -10°C to +5°C
+
+**Binary Sensor (with Hysteresis & Special Cases):**
+- Normal: Triggers at 50%, turns off at 40%
+- Heavy snow/ice (>2mm + 50% frozen): Triggers at 40%, turns off at 35% (very dangerous)
+- Hysteresis prevents flapping
 
 ### Weather Impact (Danger Prioritized)
 - **Wind: 40%** - Most dangerous factor (>25 m/s = storm)
@@ -174,17 +193,24 @@ All optional sensors use enhanced calculations optimized for Swedish climate:
 - **Extreme danger zones**: >35°C or <-30°C
 - Categories: Ideal, Safe, Cool, Moderate Risk, Caution, High Risk, Extreme Risk, Extreme Danger
 
-### Practical Clothing (Weather-Aware)
-**Context-sensitive recommendations** based on:
-- Temperature and wind (JAG/TI wind chill)
-- Cloud cover (sunny feels +1.5°C warmer, cloudy -0.5°C)
-- Humidity (high humidity feels cooler)
-- Precipitation (rain/snow requires waterproof layer)
-- Forecast trend (dress for where weather is going)
+### Practical Clothing (Weather-Aware & Layered)
+**Structured layered recommendations** with forecast awareness:
+- **Layers:** Split into base_layer, mid_layer, outer_layer, bottoms, footwear, accessories
+- **Activity mode:** Auto-detected from time (commuting 07-09/16-19, walking 10-15, general other times)
+- **Forecast checking:** Scans 6 hours ahead for temperature drops (>5°C) or rain starting
+- **Context factors:**
+  • Temperature and wind (JAG/TI wind chill)
+  • Cloud cover (sunny +1.5°C, cloudy -0.5°C)
+  • Humidity (high humidity feels cooler)
+  • Precipitation (rain/snow requires waterproof layer)
+  • Forecast trend (dress for where weather is going)
+  • Wind gusts (prioritize windproof over thick layers)
 
-**Conservative for outdoor activity** - More realistic than indoor sedentary standards. Light activity (walking/commuting) generates extra heat.
+**Swedish layering philosophy:** Windproof shell > thick layers for wind protection. Each CLO band precisely matched to engineering garment values.
 
-Example: 16°C + partly cloudy + 2 m/s wind → "Long sleeve shirt or thin sweater" (not shorts!)
+**CLO accuracy:** All bands corrected to match ASHRAE engineering table (boots 0.10, sweater types distinguished, winter base layer 0.40 CLO).
+
+Example: 15°C + sunny + calm → Base: "Long sleeve shirt", Mid: "Light overshirt if cooler", Outer: "None", with sun_adjustment: -1.5°C shown
 
 ### Heat Index
 **Activates at 22°C** (not 27°C like standard NWS formula):
@@ -247,6 +273,55 @@ Dew point perception categories:
 - 21-24°C: Very humid
 - 24-26°C: Extremely uncomfortable
 - Above 26°C: Severely high
+
+## Clothing Sensor Attributes
+
+The `sensor.smhi_practical_clothing` provides rich structured data for easy dashboard rendering:
+
+**Layered Clothing:**
+```yaml
+clothing_level: Mild spring/autumn
+base_layer: Long sleeve shirt
+mid_layer: Light overshirt if cooler
+outer_layer: None
+bottoms: Trousers
+footwear: Normal shoes
+accessories: [Sunglasses]
+```
+
+**Protection:**
+```yaml
+rain_protection: none / light_shell / waterproof / bring_backup
+rain_note: No rain expected
+waterproof_layer: false
+umbrella: false
+
+wind_protection: none / light_windproof / windproof / windproof_required
+wind_note: Calm conditions - focus on insulation
+```
+
+**Forecast Awareness:**
+```yaml
+carry_extra_layer: false
+later_note: null  # or "Temperature drops to 8°C after 22:00 - bring extra layer"
+```
+
+**Context:**
+```yaml
+effective_temperature: 15.1  # What it actually feels like
+sun_adjustment: -1.5  # Sunny makes it feel warmer
+activity_mode: commuting  # or walking, general
+activity_note: Light layers suitable for active commuting
+```
+
+**Transparency:**
+```yaml
+decision_factors:
+  - 14.9°C mild temperature
+  - Calm wind
+  - Sunny, clear sky
+confidence: high
+```
 
 ## Data Source
 
