@@ -17,6 +17,7 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 - **Smart binary sensors** - Risk-based triggers (Frost >60%, Slippery >50%)
 - **Dynamic language support** - Attributes auto-translate to Swedish
 - All sensor groups individually configurable
+- a CLO Forecast that uses Weather Forecast
 
 **Note**: Optional sensors (comfort, frost, slippery, impact, practical, thermal) are calculated values derived from SMHI weather data. They are not official SMHI forecasts.
 
