@@ -429,12 +429,14 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
 
 
 def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
-    """Calculate clothing insulation needed in CLO units using ASHRAE standards.
+    """Calculate clothing insulation needed in CLO units with Swedish climate calibration.
     
-    Based on ANSI/ASHRAE Standard 55 and thermal comfort equations.
+    Based on ANSI/ASHRAE Standard 55 with adaptations for Swedish climate:
+    - Indoor comfort: Higher target temp (22°C) due to well-heated homes
+    - Cold tolerance: 10-15% less insulation due to cultural cold adaptation
+    - Layering culture: Base values favor multiple thin layers
+    
     Accounts for boundary air layer insulation (Fourt & Hollies 1970).
-    
-    1 CLO = insulation needed at 21°C (70°F) for sedentary activity
     """
     import math
     
@@ -442,38 +444,61 @@ def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
     # Ia = 1 / (0.61 + 1.9 × √wind)
     boundary_air = 1 / (0.61 + 1.9 * math.sqrt(max(wind_ms, 0.1)))
     
-    # Calculate required CLO for thermal comfort
-    # Based on ASHRAE comfort equation for sedentary activity (1.0 met)
-    # Simplified: required insulation increases as temperature drops
-    
-    # Target comfort temperature: 21°C (1 CLO baseline)
-    # Adjust for Swedish climate (slightly cooler preference)
-    target_temp = 20.0
+    # Swedish climate calibration
+    if temp_c >= 15:
+        # Indoor/mild conditions (15°C+)
+        # Swedes keep homes very warm (22-23°C typical)
+        # Dress lighter indoors due to excellent heating
+        target_temp = 22.0
+        base_clo = 0.60  # Lighter than international 0.70
+        cold_tolerance = 1.0  # No adaptation needed
+        
+    elif temp_c >= 0:
+        # Cool outdoor conditions (0-15°C)
+        # Moderate Swedish cold tolerance
+        target_temp = 20.0
+        base_clo = 0.65  # Slightly less than international
+        cold_tolerance = 0.95  # 5% less insulation needed
+        
+    elif temp_c >= -10:
+        # Cold conditions (-10 to 0°C)
+        # Common Swedish winter, good cold adaptation
+        target_temp = 20.0
+        base_clo = 0.65
+        cold_tolerance = 0.90  # 10% less insulation needed
+        
+    else:
+        # Extreme cold (<-10°C)
+        # Long Swedish winters = excellent cold adaptation
+        target_temp = 20.0
+        base_clo = 0.65
+        cold_tolerance = 0.85  # 15% less insulation needed
     
     # Temperature difference from comfort point
     temp_diff = target_temp - temp_c
     
     if temp_diff <= 0:
-        # Warmer than comfort point - minimal clothing
+        # Warmer than comfort - minimal clothing
         if temp_c >= 26:
-            required_clo = 0.35  # Shorts + t-shirt
+            required_clo = 0.35  # Very light (hot summer)
         elif temp_c >= 24:
-            required_clo = 0.45  # Light summer clothes
+            required_clo = 0.45
         elif temp_c >= 22:
-            required_clo = 0.55  # Thin trousers + short sleeve
+            required_clo = 0.55
         else:
-            required_clo = 0.65  # Light long sleeves
+            required_clo = 0.60  # Swedish base for indoor comfort
     else:
-        # Cooler than comfort point - scale insulation
-        # Approximately 0.18 CLO per degree below comfort
-        # (derived from ASHRAE thermal balance equations)
-        required_clo = 0.70 + (temp_diff * 0.18)
+        # Cooler than comfort - scale insulation with Swedish adaptation
+        # Approximately 0.18 CLO per degree (ASHRAE standard)
+        required_clo = base_clo + (temp_diff * 0.18)
+        
+        # Apply Swedish cold tolerance factor
+        required_clo *= cold_tolerance
         
         # Cap at reasonable maximum
         required_clo = min(required_clo, 3.5)
     
     # Subtract boundary air contribution
-    # (you need less clothing if boundary air helps)
     garment_clo = max(0.3, required_clo - boundary_air)
     
     return garment_clo
@@ -1447,12 +1472,16 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
             attrs["outfit_suggestion"] = "Insulated trousers (0.35) + Multiple layers (0.70) + Parka (0.70) + Full long underwear (0.15) + Thick socks (0.10) + Boots (0.10) + Insulated gloves (0.05)"
             attrs["example_garments"] = ["Arctic gear", "Parka", "Insulated layers", "Full protection"]
         
-        # Activity adjustment note
-        attrs["activity_note"] = "Values for sedentary activity (1.0 met). Active people may need 20-30% less insulation."
+        # Activity adjustment note (Swedish context)
+        attrs["activity_note"] = "Values for sedentary activity (1.0 met). Active Swedes may need 20-30% less. Calibrated for Swedish climate (indoor comfort 22°C, outdoor cold tolerance)."
+        
+        # Swedish layering emphasis
+        if clo >= 1.0:
+            attrs["layering_tip"] = "Swedish approach: Multiple thin layers work better than single thick garments. Easier to adjust and better moisture management."
         
         # Wind effect note
         if wind > 5:
-            attrs["wind_note"] = f"High wind ({wind:.1f} m/s) reduces clothing effectiveness - add windproof outer layer"
+            attrs["wind_note"] = f"High wind ({wind:.1f} m/s) reduces clothing effectiveness - add windproof outer layer (vindtät ytterplagg)"
         
         return attrs
 
