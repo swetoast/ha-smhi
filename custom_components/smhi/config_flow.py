@@ -15,7 +15,6 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import SmhiApi
 from .const import (
     CONF_ENABLE_COMFORT_SENSORS,
-    CONF_ENABLE_DETAILED_SENSORS,
     CONF_ENABLE_FROST_SENSORS,
     CONF_ENABLE_SLIPPERY_SENSORS,
     CONF_ENABLE_IMPACT_SENSOR,
@@ -189,7 +188,6 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_ENABLE_IMPACT_SENSOR: user_input.get(CONF_ENABLE_IMPACT_SENSOR, True),
                     CONF_ENABLE_PRACTICAL_SENSORS: user_input.get(CONF_ENABLE_PRACTICAL_SENSORS, True),
                     CONF_ENABLE_THERMAL_SENSORS: user_input.get(CONF_ENABLE_THERMAL_SENSORS, True),
-                    CONF_ENABLE_DETAILED_SENSORS: user_input.get(CONF_ENABLE_DETAILED_SENSORS, False),
                 }
             )
         
@@ -202,7 +200,6 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_ENABLE_IMPACT_SENSOR, default=True): bool,
                 vol.Optional(CONF_ENABLE_PRACTICAL_SENSORS, default=True): bool,
                 vol.Optional(CONF_ENABLE_THERMAL_SENSORS, default=True): bool,
-                vol.Optional(CONF_ENABLE_DETAILED_SENSORS, default=False): bool,
             }),
         )
 
@@ -256,5 +253,4 @@ class SmhiOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_ENABLE_IMPACT_SENSOR, default=self.entry.options.get(CONF_ENABLE_IMPACT_SENSOR, True)): selector.BooleanSelector(),
             vol.Optional(CONF_ENABLE_PRACTICAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_PRACTICAL_SENSORS, True)): selector.BooleanSelector(),
             vol.Optional(CONF_ENABLE_THERMAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_THERMAL_SENSORS, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_DETAILED_SENSORS, default=self.entry.options.get(CONF_ENABLE_DETAILED_SENSORS, False)): selector.BooleanSelector(),
         }))

@@ -12,16 +12,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
-from .const import ATTR_RAW_CURRENT, CONF_NAME, DOMAIN
+from .const import ATTR_RAW_CURRENT, ATTR_RAW_FORECAST, CONF_NAME, DOMAIN
 from .helpers import clean_value, condition_from_symbol, current_item_from_series, octas_to_percent, ptype_description, symbol_description
-from .forecast_builder import ForecastBuilder
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     async_add_entities([SmhiWeather(entry, hass.data[DOMAIN][entry.entry_id])])
 
 class SmhiWeather(CoordinatorEntity, WeatherEntity):
     _attr_has_entity_name = False
-    _attr_supported_features = (WeatherEntityFeature.FORECAST_HOURLY | WeatherEntityFeature.FORECAST_DAILY | WeatherEntityFeature.FORECAST_TWICE_DAILY)
+    _attr_supported_features = WeatherEntityFeature.FORECAST_HOURLY
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_native_pressure_unit = UnitOfPressure.HPA
     _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
@@ -64,7 +63,7 @@ class SmhiWeather(CoordinatorEntity, WeatherEntity):
     def native_visibility(self): return clean_value(self._current_data().get("visibility_in_air"), parameter="visibility_in_air")
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {}
+        data = self._current_data(); return {"symbol_description": symbol_description(data.get("symbol_code")), "precipitation_type_description": ptype_description(data.get("predominant_precipitation_type_at_surface")), ATTR_RAW_CURRENT: data, ATTR_RAW_FORECAST: self._series()}
     async def async_forecast_hourly(self) -> list[Forecast]:
         out: list[Forecast] = []
         for item in self._series():
@@ -75,11 +74,3 @@ class SmhiWeather(CoordinatorEntity, WeatherEntity):
             row: Forecast = {"datetime": dt_util.as_utc(parsed).isoformat(), "condition": condition_from_symbol(data), "native_temperature": clean_value(data.get("air_temperature"), parameter="air_temperature"), "native_pressure": clean_value(data.get("air_pressure_at_mean_sea_level"), parameter="air_pressure_at_mean_sea_level"), "humidity": clean_value(data.get("relative_humidity"), parameter="relative_humidity"), "native_wind_speed": clean_value(data.get("wind_speed"), parameter="wind_speed"), "native_wind_gust_speed": clean_value(data.get("wind_speed_of_gust"), parameter="wind_speed_of_gust"), "wind_bearing": clean_value(data.get("wind_from_direction"), parameter="wind_from_direction"), "cloud_coverage": octas_to_percent(data.get("cloud_area_fraction")), "native_precipitation": precip, "precipitation_probability": clean_value(data.get("probability_of_precipitation"), parameter="probability_of_precipitation")}
             out.append({k:v for k,v in row.items() if v is not None})
         return out
-
-    async def async_forecast_daily(self) -> list[Forecast]:
-        """Return daily forecast aggregated from the SMHI time series."""
-        return ForecastBuilder(self._series()).build_daily()
-
-    async def async_forecast_twice_daily(self) -> list[Forecast]:
-        """Return twice-daily forecast (day/night) aggregated from the SMHI time series."""
-        return ForecastBuilder(self._series()).build_twice_daily()

@@ -17,7 +17,6 @@ CONF_ENABLE_SLIPPERY_SENSORS = "enable_slippery_sensors"
 CONF_ENABLE_IMPACT_SENSOR = "enable_impact_sensor"
 CONF_ENABLE_PRACTICAL_SENSORS = "enable_practical_sensors"
 CONF_ENABLE_THERMAL_SENSORS = "enable_thermal_sensors"
-CONF_ENABLE_DETAILED_SENSORS = "enable_detailed_sensors"
 
 DEFAULT_NAME = "SMHI"
 DEFAULT_FORECAST_TIMESERIES = 70

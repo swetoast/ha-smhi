@@ -1,5 +1,4 @@
 from __future__ import annotations
-from datetime import datetime
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -69,16 +68,7 @@ class SmhiApiProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
 
 class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Binary sensor for frost possibility with hysteresis and time-of-day awareness.
-    
-    Uses smart thresholds to prevent flapping:
-    - Night (22:00-08:00): More sensitive (frost more common)
-      Turn ON at 55%, turn OFF at 45%
-    - Day (08:00-22:00): Less sensitive (sun reduces frost)
-      Turn ON at 65%, turn OFF at 55%
-    
-    Hysteresis prevents rapid on/off cycling when hovering near threshold.
-    """
+    """Binary sensor for frost possibility."""
     _attr_has_entity_name = True
     _attr_name = "Frost: Possible"
     _attr_device_class = BinarySensorDeviceClass.COLD
@@ -87,7 +77,6 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_frost_possible"
-        self._previous_state = None  # Track state for hysteresis
 
     @property
     def device_info(self):
@@ -98,24 +87,23 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "model": "Open Data forecast",
             "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
         }
-    
-    def _calculate_frost_risk(self) -> float | None:
-        """Calculate frost risk percentage (0-100).
-        
-        Returns None if data unavailable, otherwise risk percentage.
-        """
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if frost risk exceeds 60%."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
         
         if temp is None or humidity is None:
-            return None
+            return False
+        
+        # Calculate frost risk using same formula as Frost: Risk sensor
+        import math
         
         # No risk above 5°C
         if temp > 5:
-            return 0.0
-        
-        import math
+            return False
         
         # Base risk from temperature using sigmoid curve
         temp_risk = 100 / (1 + math.exp((temp - 2) * 1.5))
@@ -143,43 +131,11 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
         else:
             humidity_bonus = 0
         
-        # Calculate final risk
+        # Calculate risk
         risk = (temp_risk * spread_multiplier) + humidity_bonus
-        return min(100.0, risk)  # Cap at 100%
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if frost risk exceeds threshold with hysteresis and time-of-day awareness."""
-        risk = self._calculate_frost_risk()
         
-        if risk is None:
-            # Data unavailable, keep previous state or default to False
-            return self._previous_state if self._previous_state is not None else False
-        
-        # Time-of-day thresholds
-        current_hour = datetime.now().hour
-        is_night = current_hour >= 22 or current_hour < 8
-        
-        if is_night:
-            # Night: More sensitive (frost more common during coldest hours)
-            threshold_on = 55.0
-            threshold_off = 45.0
-        else:
-            # Day: Less sensitive (sun reduces frost even at higher calculated risk)
-            threshold_on = 65.0
-            threshold_off = 55.0
-        
-        # Hysteresis logic: different thresholds for turning on vs off
-        if self._previous_state is None or not self._previous_state:
-            # Currently OFF: use ON threshold
-            new_state = risk >= threshold_on
-        else:
-            # Currently ON: use OFF threshold (lower to prevent flapping)
-            new_state = risk >= threshold_off
-        
-        # Update state tracker
-        self._previous_state = new_state
-        return new_state
+        # Trigger when risk exceeds 60%
+        return risk > 60
 
     @property
     def extra_state_attributes(self):
@@ -193,30 +149,11 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
             attrs["dew_point"] = round(calculate_dew_point(temp, humidity), 1)
             attrs["humidity"] = humidity
         
-        # Add frost risk for debugging
-        risk = self._calculate_frost_risk()
-        if risk is not None:
-            attrs["frost_risk"] = round(risk, 1)
-        
-        # Add current thresholds for transparency
-        current_hour = datetime.now().hour
-        is_night = current_hour >= 22 or current_hour < 8
-        attrs["time_period"] = "night" if is_night else "day"
-        attrs["threshold_on"] = 55.0 if is_night else 65.0
-        attrs["threshold_off"] = 45.0 if is_night else 55.0
-        
         return attrs
 
 
 class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """Binary sensor for slippery conditions with hysteresis.
-    
-    Uses smart thresholds to prevent flapping:
-    - Turn ON at 50% risk
-    - Turn OFF at 40% risk (10% hysteresis gap)
-    
-    Special case: Heavy precipitation + frozen conditions lowers threshold to 40% ON / 35% OFF
-    """
+    """Binary sensor for slippery conditions."""
     _attr_has_entity_name = True
     _attr_name = "Slippery: Conditions"
     _attr_device_class = BinarySensorDeviceClass.SAFETY
@@ -225,7 +162,6 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_slippery_conditions"
-        self._previous_state = None  # Track state for hysteresis
 
     @property
     def device_info(self):
@@ -236,26 +172,24 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
             "model": "Open Data forecast",
             "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
         }
-    
-    def _calculate_slippery_risk(self) -> tuple[float | None, bool]:
-        """Calculate slippery risk percentage (0-100) and heavy precipitation flag.
-        
-        Returns (risk, is_heavy_frozen_precipitation) tuple.
-        risk is None if data unavailable.
-        """
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if slippery risk exceeds 50%."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
         if temp is None:
-            return None, False
+            return False
         
+        # Calculate slippery risk using same formula as Slippery: Risk sensor
         # No risk outside dangerous temperature range
         if temp < -10 or temp > 5:
-            return 0.0, False
+            return False
         
-        # Base risk from distance to 0°C (most dangerous point)
+        # Base risk from distance to 0°C
         distance_from_zero = abs(temp)
         
         if distance_from_zero <= 1:
@@ -295,69 +229,14 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
         
         total_risk = temp_risk + frozen_risk + precip_risk
         
-        # Check for heavy frozen precipitation (very dangerous)
-        is_heavy = (precip is not None and precip > 2.0 and 
-                   frozen is not None and frozen > 0.5)
-        
-        return min(100.0, total_risk), is_heavy
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if slippery risk exceeds threshold with hysteresis."""
-        risk, is_heavy_frozen = self._calculate_slippery_risk()
-        
-        if risk is None:
-            # Data unavailable, keep previous state or default to False
-            return self._previous_state if self._previous_state is not None else False
-        
-        # Adjust thresholds for heavy frozen precipitation
-        if is_heavy_frozen:
-            # Very dangerous conditions: lower threshold
-            threshold_on = 40.0
-            threshold_off = 35.0
-        else:
-            # Normal conditions
-            threshold_on = 50.0
-            threshold_off = 40.0
-        
-        # Hysteresis logic: different thresholds for turning on vs off
-        if self._previous_state is None or not self._previous_state:
-            # Currently OFF: use ON threshold
-            new_state = risk >= threshold_on
-        else:
-            # Currently ON: use OFF threshold (lower to prevent flapping)
-            new_state = risk >= threshold_off
-        
-        # Update state tracker
-        self._previous_state = new_state
-        return new_state
+        # Trigger when risk exceeds 50%
+        return total_risk > 50
 
     @property
     def extra_state_attributes(self):
         data = _data(self.coordinator)
-        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
-        frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
-        precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
-        
-        attrs = {
-            "temperature": temp,
-            "precipitation_frozen_part": frozen,
-            "precipitation_amount": precip,
+        return {
+            "temperature": clean_value(data.get("air_temperature"), parameter="air_temperature"),
+            "precipitation_frozen_part": clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part"),
+            "precipitation_amount": clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean"),
         }
-        
-        # Add slippery risk for debugging
-        risk, is_heavy = self._calculate_slippery_risk()
-        if risk is not None:
-            attrs["slippery_risk"] = round(risk, 1)
-        
-        # Add current thresholds for transparency
-        if is_heavy:
-            attrs["condition"] = "heavy_frozen_precipitation"
-            attrs["threshold_on"] = 40.0
-            attrs["threshold_off"] = 35.0
-        else:
-            attrs["condition"] = "normal"
-            attrs["threshold_on"] = 50.0
-            attrs["threshold_off"] = 40.0
-        
-        return attrs

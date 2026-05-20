@@ -24,8 +24,7 @@
           "enable_slippery_sensors": "Halksensorer",
           "enable_impact_sensor": "Påverkanssensor",
           "enable_practical_sensors": "Praktiska sensorer",
-          "enable_thermal_sensors": "Termiska sensorer",
-          "enable_detailed_sensors": "Detaljerade sensorer"
+          "enable_thermal_sensors": "Termiska sensorer"
         },
         "data_description": {
           "enable_comfort_sensors": "Känns som-temperatur som kombinerar vindavkylning och värmeindex",
@@ -33,8 +32,7 @@
           "enable_slippery_sensors": "Väghalka is/snö riskprocent (0-100%) och binär halksensor",
           "enable_impact_sensor": "Övergripande vädersvårighetsgrad (0-100%) baserad på temperatur, vind, nederbörd, sikt",
           "enable_practical_sensors": "Klädesisolering (CLO), sömnkomfort (%) och träningssäkerhet (%) rekommendationer",
-          "enable_thermal_sensors": "Värmeindex, humidex, daggpunktsanalys och värmestressbedömning",
-          "enable_detailed_sensors": "4 säkerhetssensorer: sannolikhet för fryst nederbörd, risk för svartis, sannolikhet för dimma, varningar för väderväxling"
+          "enable_thermal_sensors": "Värmeindex, humidex, daggpunktsanalys och värmestressbedömning"
         }
       },
       "reconfigure": {
@@ -71,8 +69,7 @@
           "enable_slippery_sensors": "Aktivera halksensorer (risk % och binär)",
           "enable_impact_sensor": "Aktivera väderpåverkanssensor (svårighetsgrad %)",
           "enable_practical_sensors": "Aktivera praktiska sensorer (kläder, sömn, träning)",
-          "enable_thermal_sensors": "Aktivera termisk komfortsensorer (3 omfattande index)",
-          "enable_detailed_sensors": "Aktivera detaljerade sensorer (4 säkerhetssensorer)"
+          "enable_thermal_sensors": "Aktivera termisk komfortsensorer (3 omfattande index)"
         }
       }
     }
