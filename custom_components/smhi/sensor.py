@@ -504,6 +504,280 @@ def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
     return garment_clo
 
 
+def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float) -> dict:
+    """Parse CLO value into structured clothing layers for card display.
+    
+    Returns detailed breakdown suitable for visual clothing cards.
+    Swedish-calibrated layer recommendations.
+    """
+    layers = {
+        "base_layer": None,
+        "mid_layer": None,
+        "outer_layer": None,
+        "bottoms": None,
+        "footwear": None,
+        "accessories": []
+    }
+    
+    # Base layer (thermal underwear) - Swedish start at 1.0 CLO
+    if clo >= 2.2:
+        layers["base_layer"] = "Full thermal set"
+    elif clo >= 1.5:
+        layers["base_layer"] = "Long underwear"
+    elif clo >= 1.0:
+        layers["base_layer"] = "Long sleeve undershirt"
+    elif clo >= 0.7:
+        layers["base_layer"] = "Undershirt"
+    
+    # Mid layer (insulation) - Swedish layering approach
+    if clo >= 2.0:
+        layers["mid_layer"] = "Thick wool sweater + Fleece"
+    elif clo >= 1.5:
+        layers["mid_layer"] = "Thick sweater"
+    elif clo >= 1.0:
+        layers["mid_layer"] = "Sweater"
+    elif clo >= 0.7:
+        layers["mid_layer"] = "Thin sweater"
+    elif clo >= 0.5:
+        layers["mid_layer"] = "Long sleeve shirt"
+    
+    # Outer layer (protection) - Wind and rain considerations
+    if clo >= 2.5:
+        layers["outer_layer"] = "Heavy parka"
+    elif clo >= 2.2:
+        layers["outer_layer"] = "Insulated parka"
+    elif clo >= 1.8:
+        layers["outer_layer"] = "Down jacket"
+    elif clo >= 1.4:
+        layers["outer_layer"] = "Winter jacket"
+    elif clo >= 1.0:
+        layers["outer_layer"] = "Jacket"
+    elif clo >= 0.7:
+        layers["outer_layer"] = "Light jacket"
+    elif clo >= 0.5:
+        layers["outer_layer"] = "Windbreaker"
+    
+    # Bottoms - Swedish climate adapted
+    if clo >= 2.2:
+        layers["bottoms"] = "Insulated winter pants"
+    elif clo >= 1.8:
+        layers["bottoms"] = "Warm lined trousers"
+    elif clo >= 1.0:
+        layers["bottoms"] = "Flannel trousers"
+    elif clo >= 0.7:
+        layers["bottoms"] = "Regular trousers"
+    elif clo >= 0.4:
+        layers["bottoms"] = "Light trousers"
+    else:
+        layers["bottoms"] = "Shorts"
+    
+    # Footwear - Temperature based
+    if clo >= 2.0:
+        layers["footwear"] = "Insulated winter boots"
+    elif clo >= 1.4:
+        layers["footwear"] = "Winter boots"
+    elif clo >= 1.0:
+        layers["footwear"] = "Boots"
+    elif clo >= 0.7:
+        layers["footwear"] = "Sturdy shoes"
+    else:
+        layers["footwear"] = "Light shoes"
+    
+    # Accessories - Cold weather additions
+    if clo >= 2.5:
+        layers["accessories"] = ["Insulated gloves", "Warm hat", "Scarf", "Neck warmer"]
+    elif clo >= 2.0:
+        layers["accessories"] = ["Gloves", "Warm hat", "Scarf"]
+    elif clo >= 1.5:
+        layers["accessories"] = ["Gloves", "Hat", "Scarf"]
+    elif clo >= 1.0:
+        layers["accessories"] = ["Gloves", "Hat"]
+    elif clo >= 0.7:
+        layers["accessories"] = ["Light gloves"]
+    
+    # Add sunglasses in sunny conditions (low humidity often means clear sky)
+    if temp > 15 and humidity < 60:
+        if "Sunglasses" not in layers["accessories"]:
+            layers["accessories"].append("Sunglasses")
+    
+    return layers
+
+
+def get_rain_protection_level(precip_mean: float | None, precip_intensity: float | None, frozen_part: float | None) -> str:
+    """Determine rain protection level needed.
+    
+    Returns: none, bring_backup, light_shell, waterproof
+    """
+    if precip_mean is None:
+        return "none"
+    
+    # Check if precipitation is frozen (snow doesn't need waterproof)
+    is_frozen = frozen_part is not None and frozen_part > 0.7
+    
+    if is_frozen:
+        # Snow - less waterproof needed
+        if precip_mean > 2.0:
+            return "light_shell"  # Heavy snow - some protection
+        elif precip_mean > 0.5:
+            return "bring_backup"  # Moderate snow
+        else:
+            return "none"
+    else:
+        # Rain - needs waterproofing
+        if precip_mean > 2.0 or (precip_intensity and precip_intensity > 1.5):
+            return "waterproof"  # Heavy rain
+        elif precip_mean > 0.5:
+            return "light_shell"  # Moderate rain
+        elif precip_mean > 0.1:
+            return "bring_backup"  # Light rain
+        else:
+            return "none"
+
+
+def get_wind_protection_level(wind_ms: float | None) -> str:
+    """Determine wind protection level needed.
+    
+    Returns: none, light_windproof, windproof, windproof_required
+    """
+    if wind_ms is None:
+        return "none"
+    
+    # Swedish wind tolerance considered
+    if wind_ms > 12:
+        return "windproof_required"  # Storm conditions
+    elif wind_ms > 8:
+        return "windproof"  # Strong wind
+    elif wind_ms > 5:
+        return "light_windproof"  # Moderate wind
+    else:
+        return "none"
+
+
+def get_decision_factors(temp: float | None, wind: float | None, humidity: float | None, symbol: int | None, precip: float | None) -> list[str]:
+    """Extract weather decision factors for clothing choices."""
+    factors = []
+    
+    # Temperature factors
+    if temp is not None:
+        if temp > 30:
+            factors.append("very hot")
+        elif temp > 25:
+            factors.append("hot")
+        elif temp > 20:
+            factors.append("warm")
+        elif temp > 15:
+            factors.append("mild")
+        elif temp > 10:
+            factors.append("cool")
+        elif temp > 0:
+            factors.append("cold")
+        elif temp > -10:
+            factors.append("very cold")
+        else:
+            factors.append("freezing")
+    
+    # Wind factors
+    if wind is not None:
+        if wind > 10:
+            factors.append("very windy")
+        elif wind > 6:
+            factors.append("windy")
+        elif wind > 3:
+            factors.append("breezy")
+    
+    # Humidity factors
+    if humidity is not None:
+        if humidity > 85:
+            factors.append("humid")
+        elif humidity < 30:
+            factors.append("dry")
+    
+    # Sun/cloud factors (symbol codes from SMHI)
+    if symbol is not None:
+        if symbol in [1, 2]:
+            factors.append("sunny")
+            factors.append("clear sky")
+        elif symbol in [3, 4]:
+            factors.append("partly cloudy")
+        elif symbol in [5, 6]:
+            factors.append("cloudy")
+        elif symbol == 7:
+            factors.append("foggy")
+        elif symbol in [11, 21]:
+            factors.append("thunderstorm")
+    
+    # Precipitation factors
+    if precip is not None and precip > 0.1:
+        if precip > 2.0:
+            factors.append("heavy rain")
+        elif precip > 0.5:
+            factors.append("rain")
+        else:
+            factors.append("light rain")
+    
+    return factors
+
+
+def check_future_weather(coordinator, hours_ahead: int = 3) -> dict:
+    """Check forecast for future weather changes.
+    
+    Returns dict with later_note, carry_extra_layer, rain_note warnings.
+    """
+    result = {
+        "later_note": None,
+        "carry_extra_layer": False,
+        "rain_note": None
+    }
+    
+    try:
+        series = coordinator.current_payload().get("timeSeries", [])
+        if not isinstance(series, list) or len(series) < hours_ahead:
+            return result
+        
+        # Check next few hours for weather changes
+        future_items = series[1:hours_ahead+1]  # Skip current (index 0)
+        
+        rain_coming = False
+        temp_drop = False
+        current_temp = None
+        
+        for i, item in enumerate(future_items):
+            if not isinstance(item, dict):
+                continue
+                
+            data = item.get("data", {})
+            if not isinstance(data, dict):
+                continue
+            
+            # Check for rain
+            precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+            if precip and precip > 0.5:
+                rain_coming = True
+                hour_offset = i + 1
+                result["later_note"] = f"Rain expected in ~{hour_offset}h"
+                result["carry_extra_layer"] = True
+            
+            # Check for temperature drop
+            temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+            if i == 0 and temp is not None:
+                current_temp = temp
+            elif current_temp is not None and temp is not None:
+                if current_temp - temp > 5:  # 5°C drop
+                    temp_drop = True
+                    if not result["later_note"]:
+                        result["later_note"] = f"Temperature dropping {current_temp - temp:.0f}°C"
+        
+        # Rain note
+        if rain_coming:
+            result["rain_note"] = "Rain expected - bring rain protection"
+        
+    except Exception:
+        # Silently fail if forecast unavailable
+        pass
+    
+    return result
+
+
 def calculate_sleep_comfort(temp_c: float, humidity: float) -> int:
     """Calculate sleep comfort score (0-100) with enhanced humidity considerations."""
     # Optimal sleep temperature: 16-19°C
@@ -1483,7 +1757,65 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         if wind > 5:
             attrs["wind_note"] = f"High wind ({wind:.1f} m/s) reduces clothing effectiveness - add windproof outer layer (vindtät ytterplagg)"
         
+        # ===================================================================
+        # STRUCTURED CLOTHING DATA FOR CARD COMPATIBILITY
+        # ===================================================================
+        
+        # Parse CLO into individual clothing layers
+        layers = parse_clothing_layers(clo, temp, wind, humidity or 50)
+        attrs["base_layer"] = layers["base_layer"]
+        attrs["mid_layer"] = layers["mid_layer"]
+        attrs["outer_layer"] = layers["outer_layer"]
+        attrs["bottoms"] = layers["bottoms"]
+        attrs["footwear"] = layers["footwear"]
+        attrs["accessories"] = layers["accessories"]
+        
+        # Rain protection level
+        precip_mean = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+        frozen_part = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+        attrs["rain_protection"] = get_rain_protection_level(precip_mean, precip, frozen_part)
+        
+        # Wind protection level
+        attrs["wind_protection"] = get_wind_protection_level(wind)
+        
+        # Waterproof layer flag
+        attrs["waterproof_layer"] = (precip_mean is not None and precip_mean > 2.0) or \
+                                     (humidity is not None and humidity > 85 and precip is not None and precip > 0)
+        
+        # Decision factors (weather context for clothing choices)
+        symbol = clean_value(data.get("symbol_code"), parameter="symbol_code")
+        attrs["decision_factors"] = ", ".join(get_decision_factors(temp, wind, humidity, symbol, precip_mean))
+        
+        # Sun adjustment (UV factor - negative means protection needed)
+        # Based on temperature and cloud cover
+        if symbol in [1, 2] and temp > 20:  # Sunny and warm
+            attrs["sun_adjustment"] = -0.1  # Negative = need sun protection
+        elif symbol in [1, 2] and temp > 15:
+            attrs["sun_adjustment"] = -0.05
+        else:
+            attrs["sun_adjustment"] = 0  # No adjustment needed
+        
+        # Check future weather for warnings
+        future_weather = check_future_weather(self.coordinator, hours_ahead=3)
+        if future_weather["later_note"]:
+            attrs["later_note"] = future_weather["later_note"]
+        if future_weather["carry_extra_layer"]:
+            attrs["carry_extra_layer"] = True
+        if future_weather["rain_note"]:
+            attrs["rain_note"] = future_weather["rain_note"]
+        
+        # Effective temperature (feels-like with wind chill)
+        wind_chill = calculate_wind_chill(temp, wind)
+        if wind_chill is not None and wind_chill != temp:
+            attrs["effective_temperature"] = round(wind_chill, 1)
+        else:
+            attrs["effective_temperature"] = round(temp, 1)
+        
+        # Activity mode (default sedentary, could be extended)
+        attrs["activity_mode"] = "sedentary"
+        
         return attrs
+
 
 
 class SmhiSleepComfortSensor(SmhiBaseSensor):
