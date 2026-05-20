@@ -509,8 +509,11 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
     
     Returns detailed breakdown suitable for visual clothing cards.
     Swedish-calibrated layer recommendations.
+    
+    Matches icon library categories: underwear, base, mid, outer, bottoms, footwear, accessory
     """
     layers = {
+        "underwear": None,
         "base_layer": None,
         "mid_layer": None,
         "outer_layer": None,
@@ -519,17 +522,34 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         "accessories": []
     }
     
-    # Base layer (thermal underwear) - Swedish start at 1.0 CLO
-    if clo >= 2.2:
-        layers["base_layer"] = "Full thermal set"
+    # Underwear layer (thermal underwear) - Separate from base layer!
+    # Matches icon library's "underwear" category (CLO 0.04)
+    if clo >= 2.5:
+        layers["underwear"] = "Full thermal set"
+    elif clo >= 2.0:
+        layers["underwear"] = "Thermal underwear"
     elif clo >= 1.5:
-        layers["base_layer"] = "Long underwear"
+        layers["underwear"] = "Long underwear"
     elif clo >= 1.0:
-        layers["base_layer"] = "Long sleeve undershirt"
+        layers["underwear"] = "Thermal undershirt"
+    
+    # Base layer (shirts, t-shirts) - NOW separate from underwear!
+    # Matches icon library's "base" category
+    if clo >= 1.5:
+        layers["base_layer"] = "Flannel shirt"
+    elif clo >= 1.0:
+        layers["base_layer"] = "Long sleeve shirt"
     elif clo >= 0.7:
-        layers["base_layer"] = "Undershirt"
+        layers["base_layer"] = "Long sleeve shirt"
+    elif clo >= 0.5:
+        layers["base_layer"] = "Long sleeve shirt"
+    elif clo >= 0.4:
+        layers["base_layer"] = "Short sleeve shirt"
+    else:
+        layers["base_layer"] = "T-shirt"  # Always wear something!
     
     # Mid layer (insulation) - Swedish layering approach
+    # Matches icon library's "mid" category
     if clo >= 2.0:
         layers["mid_layer"] = "Thick wool sweater + Fleece"
     elif clo >= 1.5:
@@ -538,10 +558,9 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         layers["mid_layer"] = "Sweater"
     elif clo >= 0.7:
         layers["mid_layer"] = "Thin sweater"
-    elif clo >= 0.5:
-        layers["mid_layer"] = "Long sleeve shirt"
     
     # Outer layer (protection) - Wind and rain considerations
+    # Matches icon library's "outer" category
     if clo >= 2.5:
         layers["outer_layer"] = "Heavy parka"
     elif clo >= 2.2:
@@ -558,6 +577,7 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         layers["outer_layer"] = "Windbreaker"
     
     # Bottoms - Swedish climate adapted
+    # Matches icon library's "bottoms" category
     if clo >= 2.2:
         layers["bottoms"] = "Insulated winter pants"
     elif clo >= 1.8:
@@ -572,6 +592,7 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         layers["bottoms"] = "Shorts"
     
     # Footwear - Temperature based
+    # Matches icon library's "footwear" category
     if clo >= 2.0:
         layers["footwear"] = "Insulated winter boots"
     elif clo >= 1.4:
@@ -584,6 +605,7 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         layers["footwear"] = "Light shoes"
     
     # Accessories - Cold weather additions
+    # Matches icon library's "accessory" category
     if clo >= 2.5:
         layers["accessories"] = ["Insulated gloves", "Warm hat", "Scarf", "Neck warmer"]
     elif clo >= 2.0:
@@ -1763,6 +1785,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         
         # Parse CLO into individual clothing layers
         layers = parse_clothing_layers(clo, temp, wind, humidity or 50)
+        attrs["underwear"] = layers["underwear"]
         attrs["base_layer"] = layers["base_layer"]
         attrs["mid_layer"] = layers["mid_layer"]
         attrs["outer_layer"] = layers["outer_layer"]
