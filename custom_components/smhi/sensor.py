@@ -800,6 +800,185 @@ def check_future_weather(coordinator, hours_ahead: int = 3) -> dict:
     return result
 
 
+def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
+    """Calculate CLO forecast for all available forecast hours.
+    
+    Uses all forecast data from SMHI timeSeries (typically ~240 hours / 10 days).
+    Returns hourly CLO values with Swedish climate calibration.
+    
+    Args:
+        coordinator: SMHI coordinator with forecast data
+        max_hours: Optional limit (None = use all available)
+    
+    Returns:
+        List of dicts with time and clo for each forecast hour
+    """
+    try:
+        series = coordinator.current_payload().get("timeSeries", [])
+        if not isinstance(series, list):
+            return []
+        
+        forecast = []
+        hours_to_process = len(series) if max_hours is None else min(max_hours, len(series))
+        
+        for i in range(hours_to_process):
+            item = series[i]
+            if not isinstance(item, dict):
+                continue
+            
+            data = item.get("data", {})
+            if not isinstance(data, dict):
+                continue
+            
+            # Extract forecast data
+            temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+            wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
+            valid_time = item.get("validTime")
+            
+            if temp is None or wind is None or not valid_time:
+                continue
+            
+            # Calculate CLO using existing Swedish-calibrated function
+            clo = calculate_clo_value(temp, wind)
+            
+            forecast.append({
+                "time": valid_time,
+                "clo": round(clo, 1)
+            })
+        
+        return forecast
+    
+    except Exception:
+        # Silently fail if forecast unavailable
+        return []
+
+
+def calculate_daily_clo_summary(forecast: list[dict]) -> list[dict]:
+    """Group hourly CLO forecast into daily summaries.
+    
+    Args:
+        forecast: Hourly forecast from calculate_clo_forecast()
+    
+    Returns:
+        List of daily summaries with min/max/avg CLO
+    """
+    from datetime import datetime
+    from collections import defaultdict
+    
+    if not forecast:
+        return []
+    
+    by_date = defaultdict(list)
+    
+    # Group by date
+    for item in forecast:
+        try:
+            dt = datetime.fromisoformat(item["time"].replace("Z", "+00:00"))
+            date_key = dt.date().isoformat()
+            by_date[date_key].append(item)
+        except Exception:
+            continue
+    
+    # Calculate daily stats
+    daily = []
+    for date_str in sorted(by_date.keys()):
+        items = by_date[date_str]
+        clo_values = [item["clo"] for item in items]
+        
+        if not clo_values:
+            continue
+        
+        daily.append({
+            "date": date_str,
+            "clo_min": round(min(clo_values), 1),
+            "clo_max": round(max(clo_values), 1),
+            "clo_avg": round(sum(clo_values) / len(clo_values), 1),
+            "hours": len(items)
+        })
+    
+    return daily
+
+
+def detect_clo_changes(forecast: list[dict], threshold: float = 0.5) -> list[dict]:
+    """Detect significant CLO changes in forecast.
+    
+    Args:
+        forecast: Hourly forecast from calculate_clo_forecast()
+        threshold: Minimum CLO change to report (default 0.5)
+    
+    Returns:
+        List of significant changes with time, direction, magnitude
+    """
+    if len(forecast) < 2:
+        return []
+    
+    changes = []
+    
+    for i in range(len(forecast) - 1):
+        current = forecast[i]
+        next_item = forecast[i + 1]
+        
+        diff = next_item["clo"] - current["clo"]
+        
+        if abs(diff) >= threshold:
+            changes.append({
+                "time": next_item["time"],
+                "from_clo": current["clo"],
+                "to_clo": next_item["clo"],
+                "change": round(diff, 1),
+                "direction": "warming" if diff < 0 else "cooling"
+            })
+    
+    return changes
+
+
+def get_evening_forecast(current_clo: float, forecast: list[dict]) -> dict | None:
+    """Check if evening requires different clothing than current.
+    
+    Args:
+        current_clo: Current CLO value
+        forecast: Hourly forecast from calculate_clo_forecast()
+    
+    Returns:
+        Dict with evening info if significant change, None otherwise
+    """
+    from datetime import datetime
+    
+    if not forecast:
+        return None
+    
+    # Find items between 18:00-20:00 today
+    evening_items = []
+    for item in forecast[:24]:  # Only look at next 24h
+        try:
+            dt = datetime.fromisoformat(item["time"].replace("Z", "+00:00"))
+            if 18 <= dt.hour <= 20:
+                evening_items.append(item)
+        except Exception:
+            continue
+    
+    if not evening_items:
+        return None
+    
+    # Use average of evening hours
+    evening_clo = sum(item["clo"] for item in evening_items) / len(evening_items)
+    diff = evening_clo - current_clo
+    
+    # Only report if significant difference
+    if abs(diff) >= 0.3:
+        direction = "colder" if diff > 0 else "warmer"
+        action = "Bring extra layer" if diff > 0 else "Can dress lighter"
+        
+        return {
+            "evening_clo": round(evening_clo, 1),
+            "difference": round(diff, 1),
+            "direction": direction,
+            "warning": f"Evening {abs(diff):.1f} CLO {direction} - {action}"
+        }
+    
+    return None
+
+
 def calculate_sleep_comfort(temp_c: float, humidity: float) -> int:
     """Calculate sleep comfort score (0-100) with enhanced humidity considerations."""
     # Optimal sleep temperature: 16-19°C
@@ -1836,6 +2015,28 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         
         # Activity mode (default sedentary, could be extended)
         attrs["activity_mode"] = "sedentary"
+        
+        # ===================================================================
+        # CLO FORECAST - Uses all available SMHI forecast hours
+        # IMPORTANT: Exclude from recorder to prevent database bloat!
+        # Add to configuration.yaml:
+        #   recorder:
+        #     exclude:
+        #       entity_attributes:
+        #         sensor.smhi_practical_clothing:
+        #           - forecast_hourly
+        #           - forecast_daily
+        # ===================================================================
+        
+        # Calculate hourly CLO forecast for all available hours (~240h / 10 days)
+        forecast_hourly = calculate_clo_forecast(self.coordinator)
+        
+        if forecast_hourly:
+            # Full hourly forecast (exclude from recorder!)
+            attrs["forecast_hourly"] = forecast_hourly
+            
+            # Daily summaries (exclude from recorder!)
+            attrs["forecast_daily"] = calculate_daily_clo_summary(forecast_hourly)
         
         return attrs
 
