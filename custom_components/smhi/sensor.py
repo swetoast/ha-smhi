@@ -428,23 +428,69 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
     return min(100, max(0, int(impact)))
 
 
-def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
+def calculate_clo_value(temp_c: float, wind_ms: float, month: int = None) -> float:
     """Calculate clothing insulation needed in CLO units with Swedish climate calibration.
     
     Based on ANSI/ASHRAE Standard 55 with adaptations for Swedish climate:
     - Indoor comfort: Higher target temp (22°C) due to well-heated homes
     - Cold tolerance: 10-15% less insulation due to cultural cold adaptation
     - Layering culture: Base values favor multiple thin layers
+    - SEASONAL ADJUSTMENT: 12°C in May ≠ 12°C in November!
     
     Accounts for boundary air layer insulation (Fourt & Hollies 1970).
+    
+    Args:
+        temp_c: Temperature in Celsius
+        wind_ms: Wind speed in m/s
+        month: Month (1-12) for seasonal adjustment, auto-detected if None
     """
     import math
+    from datetime import datetime
+    
+    # Auto-detect current month if not provided
+    if month is None:
+        month = datetime.now().month
+    
+    # SEASONAL ADJUSTMENT - Swedish acclimatization
+    # Determine season using shared helper function
+    season = get_season_from_month(month)
+    
+    # Seasonal factors based on body acclimatization
+    # After winter, bodies adapt to warmth; same temp feels different!
+    if season == "Spring":
+        # Bodies acclimatizing to warmth after winter
+        # 12°C in May feels mild compared to November
+        # Gradual progression: early → mid → late spring
+        if month == 3:
+            seasonal_factor = 0.90  # Early spring, still cautious
+        elif month == 4:
+            seasonal_factor = 0.85  # Mid-spring, warming up
+        else:  # May
+            seasonal_factor = 0.80  # Late spring, warm-adapted
+            
+    elif season == "Summer":
+        # Fully acclimatized to warmth
+        # Cool days still feel comfortable
+        seasonal_factor = 0.75  # Maximum reduction
+        
+    elif season == "Autumn":
+        # Losing summer adaptation
+        if month == 9:  # Early autumn
+            seasonal_factor = 0.85  # Still warm from summer
+        elif month == 10:  # Mid autumn
+            seasonal_factor = 0.95  # Rapidly losing warmth
+        else:  # November
+            seasonal_factor = 1.0  # Back to winter mode
+            
+    else:  # Winter
+        # Fully adapted to cold
+        seasonal_factor = 1.0  # No reduction, full insulation
     
     # Calculate boundary air insulation (wind effect)
     # Ia = 1 / (0.61 + 1.9 × √wind)
     boundary_air = 1 / (0.61 + 1.9 * math.sqrt(max(wind_ms, 0.1)))
     
-    # Swedish climate calibration
+    # Swedish climate calibration (unchanged)
     if temp_c >= 15:
         # Indoor/mild conditions (15°C+)
         # Swedes keep homes very warm (22-23°C typical)
@@ -494,6 +540,10 @@ def calculate_clo_value(temp_c: float, wind_ms: float) -> float:
         
         # Apply Swedish cold tolerance factor
         required_clo *= cold_tolerance
+        
+        # Apply seasonal adjustment - accounts for body acclimatization
+        # 12°C in May feels warmer than 12°C in November!
+        required_clo *= seasonal_factor
         
         # Cap at reasonable maximum
         required_clo = min(required_clo, 3.5)
@@ -813,13 +863,23 @@ def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
     Returns:
         List of dicts with time and clo for each forecast hour
     """
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+    
     try:
-        series = coordinator.current_payload().get("timeSeries", [])
+        payload = coordinator.current_payload()
+        _LOGGER.debug("CLO Forecast: payload keys = %s", payload.keys() if payload else "None")
+        
+        series = payload.get("timeSeries", [])
+        _LOGGER.debug("CLO Forecast: timeSeries length = %d", len(series) if isinstance(series, list) else 0)
+        
         if not isinstance(series, list):
+            _LOGGER.warning("CLO Forecast: timeSeries is not a list: %s", type(series))
             return []
         
         forecast = []
         hours_to_process = len(series) if max_hours is None else min(max_hours, len(series))
+        _LOGGER.debug("CLO Forecast: processing %d hours", hours_to_process)
         
         for i in range(hours_to_process):
             item = series[i]
@@ -838,18 +898,27 @@ def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
             if temp is None or wind is None or not valid_time:
                 continue
             
-            # Calculate CLO using existing Swedish-calibrated function
-            clo = calculate_clo_value(temp, wind)
+            # Extract month from forecast time for seasonal adjustment
+            try:
+                from datetime import datetime
+                forecast_dt = datetime.fromisoformat(valid_time.replace("Z", "+00:00"))
+                forecast_month = forecast_dt.month
+            except Exception:
+                forecast_month = None  # Will use current month as fallback
+            
+            # Calculate CLO with correct seasonal adjustment for this forecast hour
+            clo = calculate_clo_value(temp, wind, month=forecast_month)
             
             forecast.append({
                 "time": valid_time,
                 "clo": round(clo, 1)
             })
         
+        _LOGGER.debug("CLO Forecast: generated %d forecast items", len(forecast))
         return forecast
     
-    except Exception:
-        # Silently fail if forecast unavailable
+    except Exception as e:
+        _LOGGER.error("CLO Forecast calculation failed: %s", str(e), exc_info=True)
         return []
 
 
@@ -1389,23 +1458,40 @@ def get_autumn_scharlau_perception(s: float | None) -> str:
         return "Warm"
 
 
+def get_season_from_month(month: int) -> str:
+    """Determine meteorological season from month (Northern Hemisphere).
+    
+    Args:
+        month: Month number (1-12)
+    
+    Returns:
+        Season name: "Winter", "Spring", "Summer", or "Autumn"
+    """
+    if month in [12, 1, 2]:
+        return "Winter"
+    elif month in [3, 4, 5]:
+        return "Spring"
+    elif month in [6, 7, 8]:
+        return "Summer"
+    else:  # 9, 10, 11
+        return "Autumn"
+
+
 def get_seasonal_scharlau(temp_c: float, humidity: float, wind_ms: float, month: int) -> tuple[float | None, str, str]:
     """Get appropriate Scharlau index based on season."""
-    # Determine season based on month (Northern Hemisphere)
-    if month in [12, 1, 2]:
-        season = "Winter"
+    # Determine season using shared helper
+    season = get_season_from_month(month)
+    
+    if season == "Winter":
         value = calculate_winter_scharlau(temp_c, humidity, wind_ms)
         perception = get_winter_scharlau_perception(value)
-    elif month in [3, 4, 5]:
-        season = "Spring"
+    elif season == "Spring":
         value = calculate_spring_scharlau(temp_c, humidity)
         perception = get_spring_scharlau_perception(value)
-    elif month in [6, 7, 8]:
-        season = "Summer"
+    elif season == "Summer":
         value = calculate_summer_scharlau(temp_c, humidity)
         perception = get_summer_scharlau_perception(value)
-    else:  # 9, 10, 11
-        season = "Autumn"
+    else:  # Autumn
         value = calculate_autumn_scharlau(temp_c, humidity, wind_ms)
         perception = get_autumn_scharlau_perception(value)
     
