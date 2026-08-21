@@ -43,7 +43,15 @@ class SmhiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             await self._refresh_metadata()
-            data = await self.api.get_point_forecast(self.latitude, self.longitude, int(self.entry.options.get(CONF_FORECAST_TIMESERIES, DEFAULT_FORECAST_TIMESERIES)))
+            data = await self.api.get_point_forecast(self.latitude, self.longitude)
+            # The API's own "timeseries=N" truncation is unreliable above the available
+            # count (e.g. requesting 200 returns fewer than requesting 70), so we always
+            # fetch the full series and cap it client-side. This makes the option a clean
+            # upper bound: higher = more, limited by what SMHI actually provides.
+            limit = int(self.entry.options.get(CONF_FORECAST_TIMESERIES, DEFAULT_FORECAST_TIMESERIES))
+            series = data.get("timeSeries")
+            if isinstance(series, list) and 0 < limit < len(series):
+                data = {**data, "timeSeries": series[:limit]}
             self.last_good_data = data; self.last_success = dt_util.utcnow().isoformat(); self.last_error = None
             return data
         except Exception as err:

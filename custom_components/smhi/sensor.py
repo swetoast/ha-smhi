@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+
+_LOGGER = logging.getLogger(__name__)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength, UnitOfTemperature
 try:
@@ -171,6 +174,24 @@ class HumidityComfort(StrEnum):
     PLEASANT = "pleasant"
     DRY = "dry"
     VERY_DRY = "very_dry"
+
+
+class BlackIceRisk(StrEnum):
+    """Black ice risk levels."""
+    NONE = "none"
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    VERY_HIGH = "very_high"
+
+
+class WeatherChangeLevel(StrEnum):
+    """Weather change alert levels."""
+    STABLE = "stable"
+    MINOR = "minor"
+    MODERATE = "moderate"
+    SIGNIFICANT = "significant"
+    SEVERE = "severe"
 
 
 class ThermalIndex(StrEnum):
@@ -371,13 +392,13 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
     
     # High wind (40% weight) - most dangerous factor
     wind_kmh = wind_ms * 3.6
-    if wind_kmh > 25:  # Storm force (>25 m/s = 90 km/h)
+    if wind_kmh > 90:  # Storm force (>25 m/s)
         impact += 40
-    elif wind_kmh > 20:  # Very strong
+    elif wind_kmh > 72:  # Very strong (>20 m/s)
         impact += 32
-    elif wind_kmh > 15:  # Strong
+    elif wind_kmh > 54:  # Strong (>15 m/s)
         impact += 24
-    elif wind_kmh > 10:  # Fresh
+    elif wind_kmh > 36:  # Fresh (>10 m/s)
         impact += 12
     
     # Heavy precipitation (30% weight)
@@ -417,12 +438,14 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
         impact += 4
     
     # Thunderstorm bonus (adds to total, not weighted)
+    # SMHI returns this as a percentage (0-100); normalise a 0-1 fraction just in case.
     if thunder_prob is not None:
-        if thunder_prob > 0.7:
+        thunder_pct = thunder_prob * 100 if thunder_prob <= 1.0 else thunder_prob
+        if thunder_pct > 70:
             impact += 15
-        elif thunder_prob > 0.5:
+        elif thunder_pct > 50:
             impact += 10
-        elif thunder_prob > 0.3:
+        elif thunder_pct > 30:
             impact += 5
     
     return min(100, max(0, int(impact)))
@@ -556,11 +579,11 @@ def calculate_clo_value(temp_c: float, wind_ms: float, month: int = None) -> flo
 
 def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float) -> dict:
     """Parse CLO value into structured clothing layers for card display.
-    
-    Returns detailed breakdown suitable for visual clothing cards.
+
+    Returns a detailed breakdown suitable for visual clothing cards.
     Swedish-calibrated layer recommendations.
-    
-    Matches icon library categories: underwear, base, mid, outer, bottoms, footwear, accessory
+
+    Categories: underwear, base, mid, outer, bottoms, footwear, accessory.
     """
     layers = {
         "underwear": None,
@@ -571,107 +594,186 @@ def parse_clothing_layers(clo: float, temp: float, wind: float, humidity: float)
         "footwear": None,
         "accessories": []
     }
-    
-    # Underwear layer (thermal underwear) - Separate from base layer!
-    # Matches icon library's "underwear" category (CLO 0.04)
-    if clo >= 2.5:
-        layers["underwear"] = "Full thermal set"
+
+    # Underwear layer (CLO ~0.04). Worn in all normal Swedish conditions.
+    if clo >= 2.8:
+        layers["underwear"] = "Expedition thermal set"   # Extreme cold, below -25C
+    elif clo >= 2.5:
+        layers["underwear"] = "Full thermal set"         # -20C and below
     elif clo >= 2.0:
-        layers["underwear"] = "Thermal underwear"
+        layers["underwear"] = "Thermal underwear"        # -10C to -20C
     elif clo >= 1.5:
-        layers["underwear"] = "Long underwear"
+        layers["underwear"] = "Long underwear"           # 0C to -10C
     elif clo >= 1.0:
-        layers["underwear"] = "Thermal undershirt"
-    
-    # Base layer (shirts, t-shirts) - NOW separate from underwear!
-    # Matches icon library's "base" category
-    if clo >= 1.5:
+        layers["underwear"] = "Thermal undershirt"       # 5-10C
+    elif clo >= 0.7:
+        layers["underwear"] = "Light thermal undershirt" # 10-15C
+    elif clo >= 0.25:
+        layers["underwear"] = "Regular underwear"        # 15-30C
+    # Below 0.25 CLO (~30C+): extreme heat, rare in Sweden, underwear optional
+
+    # Base layer (shirts). Always present.
+    if clo >= 2.5:
+        layers["base_layer"] = "Merino wool base layer"
+    elif clo >= 2.0:
+        layers["base_layer"] = "Heavy flannel shirt"
+    elif clo >= 1.5:
         layers["base_layer"] = "Flannel shirt"
+    elif clo >= 1.2:
+        layers["base_layer"] = "Wool henley"
     elif clo >= 1.0:
         layers["base_layer"] = "Long sleeve shirt"
     elif clo >= 0.7:
-        layers["base_layer"] = "Long sleeve shirt"
+        layers["base_layer"] = "Oxford shirt"
     elif clo >= 0.5:
-        layers["base_layer"] = "Long sleeve shirt"
+        layers["base_layer"] = "Light long sleeve shirt"
     elif clo >= 0.4:
         layers["base_layer"] = "Short sleeve shirt"
     else:
-        layers["base_layer"] = "T-shirt"  # Always wear something!
-    
-    # Mid layer (insulation) - Swedish layering approach
-    # Matches icon library's "mid" category
-    if clo >= 2.0:
+        layers["base_layer"] = "T-shirt"
+
+    # Mid layer (insulation). Swedish layering approach.
+    if clo >= 2.5:
+        layers["mid_layer"] = "Wool sweater + Down vest"
+    elif clo >= 2.0:
         layers["mid_layer"] = "Thick wool sweater + Fleece"
+    elif clo >= 1.7:
+        layers["mid_layer"] = "Fleece jacket"
     elif clo >= 1.5:
         layers["mid_layer"] = "Thick sweater"
+    elif clo >= 1.2:
+        layers["mid_layer"] = "Wool sweater"
     elif clo >= 1.0:
         layers["mid_layer"] = "Sweater"
     elif clo >= 0.7:
         layers["mid_layer"] = "Thin sweater"
-    
-    # Outer layer (protection) - Wind and rain considerations
-    # Matches icon library's "outer" category
-    if clo >= 2.5:
+    elif clo >= 0.5:
+        layers["mid_layer"] = "Light cardigan"
+
+    # Outer layer (protection). Wind and rain considerations.
+    if clo >= 2.8:
+        layers["outer_layer"] = "Expedition parka"
+    elif clo >= 2.5:
         layers["outer_layer"] = "Heavy parka"
     elif clo >= 2.2:
         layers["outer_layer"] = "Insulated parka"
     elif clo >= 1.8:
         layers["outer_layer"] = "Down jacket"
-    elif clo >= 1.4:
+    elif clo >= 1.5:
         layers["outer_layer"] = "Winter jacket"
+    elif clo >= 1.2:
+        layers["outer_layer"] = "Insulated shell jacket"
     elif clo >= 1.0:
         layers["outer_layer"] = "Jacket"
+    elif clo >= 0.8:
+        layers["outer_layer"] = "Softshell jacket"
     elif clo >= 0.7:
         layers["outer_layer"] = "Light jacket"
     elif clo >= 0.5:
         layers["outer_layer"] = "Windbreaker"
-    
-    # Bottoms - Swedish climate adapted
-    # Matches icon library's "bottoms" category
-    if clo >= 2.2:
+
+    # Bottoms. Swedish climate adapted.
+    if clo >= 2.5:
+        layers["bottoms"] = "Thermal-lined winter pants"
+    elif clo >= 2.2:
         layers["bottoms"] = "Insulated winter pants"
     elif clo >= 1.8:
         layers["bottoms"] = "Warm lined trousers"
+    elif clo >= 1.4:
+        layers["bottoms"] = "Wool trousers"
     elif clo >= 1.0:
         layers["bottoms"] = "Flannel trousers"
     elif clo >= 0.7:
         layers["bottoms"] = "Regular trousers"
+    elif clo >= 0.5:
+        layers["bottoms"] = "Chinos"
     elif clo >= 0.4:
         layers["bottoms"] = "Light trousers"
     else:
         layers["bottoms"] = "Shorts"
-    
-    # Footwear - Temperature based
-    # Matches icon library's "footwear" category
-    if clo >= 2.0:
+
+    # Footwear. Temperature based.
+    if clo >= 2.5:
+        layers["footwear"] = "Expedition winter boots"
+    elif clo >= 2.0:
         layers["footwear"] = "Insulated winter boots"
-    elif clo >= 1.4:
+    elif clo >= 1.5:
         layers["footwear"] = "Winter boots"
+    elif clo >= 1.2:
+        layers["footwear"] = "Insulated boots"
     elif clo >= 1.0:
         layers["footwear"] = "Boots"
     elif clo >= 0.7:
         layers["footwear"] = "Sturdy shoes"
+    elif clo >= 0.5:
+        layers["footwear"] = "Sneakers"
     else:
         layers["footwear"] = "Light shoes"
-    
-    # Accessories - Cold weather additions
-    # Matches icon library's "accessory" category
-    if clo >= 2.5:
-        layers["accessories"] = ["Insulated gloves", "Warm hat", "Scarf", "Neck warmer"]
-    elif clo >= 2.0:
-        layers["accessories"] = ["Gloves", "Warm hat", "Scarf"]
-    elif clo >= 1.5:
-        layers["accessories"] = ["Gloves", "Hat", "Scarf"]
-    elif clo >= 1.0:
-        layers["accessories"] = ["Gloves", "Hat"]
-    elif clo >= 0.7:
-        layers["accessories"] = ["Light gloves"]
-    
-    # Add sunglasses in sunny conditions (low humidity often means clear sky)
-    if temp > 15 and humidity < 60:
-        if "Sunglasses" not in layers["accessories"]:
-            layers["accessories"].append("Sunglasses")
-    
+
+    # Accessories. Temperature and CLO aware, with Swedish winter gear.
+    accessories = []
+    is_winter_cold = temp < 5
+    is_spring_fall = 5 <= temp < 15
+
+    # Very cold (below 0C) - full winter gear; mittens beat gloves in extreme cold
+    if temp < 0:
+        if clo >= 2.5:
+            accessories = ["Mittens", "Balaclava", "Neck gaiter", "Thermal socks", "Ear warmers"]
+        elif clo >= 2.0:
+            accessories = ["Insulated gloves", "Warm hat", "Neck gaiter", "Thermal socks"]
+        elif clo >= 1.5:
+            accessories = ["Gloves", "Warm hat", "Scarf"]
+        else:
+            accessories = ["Gloves", "Beanie"]
+
+    # Cold winter (0-5C)
+    elif is_winter_cold:
+        if clo >= 2.0:
+            accessories = ["Gloves", "Warm hat", "Neck gaiter", "Thermal socks"]
+        elif clo >= 1.5:
+            accessories = ["Gloves", "Beanie", "Scarf"]
+        elif clo >= 1.0:
+            accessories = ["Gloves", "Beanie"]
+        elif clo >= 0.7:
+            accessories = ["Light gloves", "Ear warmers"]
+
+    # Spring/Fall transitional (5-15C) - conservative
+    elif is_spring_fall:
+        if clo >= 2.0:
+            accessories = ["Gloves", "Beanie", "Scarf"]
+        elif clo >= 1.8:
+            accessories = ["Light gloves", "Beanie"]
+        elif clo >= 1.5:
+            accessories = ["Light gloves", "Cap"]
+        elif clo >= 1.2:
+            accessories = ["Cap"]
+
+    # Summer warm (>15C) - sun protection only
+    else:
+        if clo >= 1.5:  # unusual: windy/rainy
+            accessories = ["Cap"]
+
+    # Neck cover for biting wind (skip if a neck item is already present)
+    neck_items = ("Scarf", "Light scarf", "Neck gaiter", "Buff")
+    if wind > 8 and temp < 10 and clo >= 1.0 and not any(n in accessories for n in neck_items):
+        accessories.append("Buff")
+
+    # Warm socks in the cold if not already covered
+    sock_items = ("Thermal socks", "Wool socks")
+    if temp < 8 and clo >= 1.0 and not any(s in accessories for s in sock_items):
+        accessories.append("Wool socks")
+
+    # Sunglasses in bright, dry conditions
+    if temp > 15 and humidity < 60 and "Sunglasses" not in accessories:
+        accessories.append("Sunglasses")
+
+    # Cap for rain/sun in mild damp weather if head is uncovered
+    head_items = ("Hat", "Warm hat", "Cap", "Beanie", "Balaclava")
+    if temp > 10 and humidity > 75 and not any(h in accessories for h in head_items):
+        accessories.append("Cap")
+
+    layers["accessories"] = accessories
+
     return layers
 
 
@@ -810,7 +912,6 @@ def check_future_weather(coordinator, hours_ahead: int = 3) -> dict:
         future_items = series[1:hours_ahead+1]  # Skip current (index 0)
         
         rain_coming = False
-        temp_drop = False
         current_temp = None
         
         for i, item in enumerate(future_items):
@@ -835,7 +936,6 @@ def check_future_weather(coordinator, hours_ahead: int = 3) -> dict:
                 current_temp = temp
             elif current_temp is not None and temp is not None:
                 if current_temp - temp > 5:  # 5°C drop
-                    temp_drop = True
                     if not result["later_note"]:
                         result["later_note"] = f"Temperature dropping {current_temp - temp:.0f}°C"
         
@@ -863,23 +963,16 @@ def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
     Returns:
         List of dicts with time and clo for each forecast hour
     """
-    import logging
-    _LOGGER = logging.getLogger(__name__)
-    
     try:
         payload = coordinator.current_payload()
-        _LOGGER.debug("CLO Forecast: payload keys = %s", payload.keys() if payload else "None")
-        
         series = payload.get("timeSeries", [])
-        _LOGGER.debug("CLO Forecast: timeSeries length = %d", len(series) if isinstance(series, list) else 0)
         
         if not isinstance(series, list):
-            _LOGGER.warning("CLO Forecast: timeSeries is not a list: %s", type(series))
+            _LOGGER.debug("CLO Forecast: timeSeries is not a list: %s", type(series))
             return []
         
         forecast = []
         hours_to_process = len(series) if max_hours is None else min(max_hours, len(series))
-        _LOGGER.debug("CLO Forecast: processing %d hours", hours_to_process)
         
         for i in range(hours_to_process):
             item = series[i]
@@ -893,7 +986,7 @@ def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
             # Extract forecast data
             temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
             wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
-            valid_time = item.get("validTime")
+            valid_time = item.get("time")
             
             if temp is None or wind is None or not valid_time:
                 continue
@@ -914,7 +1007,6 @@ def calculate_clo_forecast(coordinator, max_hours: int = None) -> list[dict]:
                 "clo": round(clo, 1)
             })
         
-        _LOGGER.debug("CLO Forecast: generated %d forecast items", len(forecast))
         return forecast
     
     except Exception as e:
@@ -1181,12 +1273,19 @@ def calculate_exercise_safety(temp_c: float, wind_ms: float, humidity: float) ->
 
 
 def calculate_absolute_humidity(temp_c: float, humidity: float) -> float:
-    """Calculate absolute humidity in g/m³."""
+    """Calculate absolute humidity in g/m³.
+
+    Matches the thermal_comfort integration (dolezsa/thermal_comfort 2.2).
+    Source: carnotcycle.wordpress.com relative-to-absolute humidity conversion.
+    """
     import math
-    es = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5))
-    e = es * (humidity / 100.0)
-    ah = (e * 2.1674) / (273.15 + temp_c)
-    return ah
+    abs_temperature = temp_c + 273.15
+    abs_humidity = 6.112
+    abs_humidity *= math.exp((17.67 * temp_c) / (243.5 + temp_c))
+    abs_humidity *= humidity
+    abs_humidity *= 2.1674
+    abs_humidity /= abs_temperature
+    return abs_humidity
 
 
 def calculate_frost_point(temp_c: float, humidity: float) -> float | None:
@@ -1284,25 +1383,38 @@ def get_relative_strain_perception(rsi: float | None) -> str:
 
 
 def calculate_summer_simmer_index(temp_c: float, humidity: float) -> float:
-    """Calculate summer simmer index."""
-    ssi = 1.98 * (temp_c - (0.55 - 0.0055 * humidity) * (temp_c - 14.5)) - 56.83
-    return ssi
+    """Calculate summer simmer index, returned on a Celsius scale.
+
+    The published SSI regression is defined in Fahrenheit; we convert in and out
+    so the value matches the Celsius perception thresholds below.
+    """
+    fahrenheit = temp_c * 9 / 5 + 32
+    ssi_f = 1.98 * (fahrenheit - (0.55 - 0.0055 * humidity) * (fahrenheit - 58.0)) - 56.83
+    if fahrenheit < 58:  # SSI is only valid above 58 F; below it the index is just the temperature
+        ssi_f = fahrenheit
+    return (ssi_f - 32) * 5 / 9
 
 
 def get_summer_simmer_perception(ssi: float) -> str:
-    """Get perception for summer simmer index."""
-    if ssi >= 65:
-        return "Extreme Danger"
-    elif ssi >= 55:
-        return "Danger of Heat Stroke"
-    elif ssi >= 50:
-        return "Extreme Caution"
-    elif ssi >= 40:
-        return "Caution"
-    elif ssi >= 25:
-        return "Comfortable"
-    else:
+    """Perception for the summer simmer index (thermal_comfort 2.2 Celsius bands)."""
+    if ssi < 21.1:
         return "Cool"
+    elif ssi < 25.0:
+        return "Slightly Cool"
+    elif ssi < 28.3:
+        return "Comfortable"
+    elif ssi < 32.8:
+        return "Slightly Warm"
+    elif ssi < 37.8:
+        return "Increasing Discomfort"
+    elif ssi < 44.4:
+        return "Extremely Warm"
+    elif ssi < 51.7:
+        return "Danger of Heat Stroke"
+    elif ssi < 65.6:
+        return "Extreme Danger of Heat Stroke"
+    else:
+        return "Circulatory Collapse Imminent"
 
 
 def calculate_moist_air_enthalpy(temp_c: float, humidity: float) -> float:
@@ -1349,124 +1461,62 @@ def calculate_moist_air_enthalpy(temp_c: float, humidity: float) -> float:
 
 
 def calculate_summer_scharlau(temp_c: float, humidity: float) -> float | None:
-    """Calculate summer Scharlau index (17-39°C, humidity >= 30%)."""
+    """Summer Scharlau index (valid 17-39 C, humidity >= 30%).
+
+    Ported from the thermal_comfort integration (dolezsa/thermal_comfort 2.2).
+    Source: https://revistadechimie.ro/pdf/16%20RUSANESCU%204%2019.pdf
+    Returns the index ISE = Tc - T, where Tc is the Scharlau critical temperature.
+    """
+    import math
     if not (17 <= temp_c <= 39 and humidity >= 30):
         return None
-    
-    s = 0.17 * (temp_c ** 2 - 0.4 * temp_c * (100 - humidity) + 10 * (temp_c - 25))
-    return s
+    tc = -17.089 * math.log(humidity) + 94.979
+    return tc - temp_c
 
 
 def get_summer_scharlau_perception(s: float | None) -> str:
-    """Get perception for summer Scharlau index."""
+    """Perception for the summer Scharlau index (thermal_comfort 2.2 bands)."""
     if s is None:
         return "N/A"
-    if s < 0:
-        return "Cold"
-    elif s < 1:
-        return "Cool"
-    elif s < 2:
-        return "Slightly Cool"
-    elif s < 3:
-        return "Comfortable"
-    elif s < 4:
-        return "Slightly Warm"
-    elif s < 5:
-        return "Warm"
+    if s <= -3:
+        return "Highly Uncomfortable"
+    elif s <= -1:
+        return "Moderately Uncomfortable"
+    elif s < 0:
+        return "Slightly Uncomfortable"
     else:
-        return "Hot"
+        return "Comfortable"
 
 
-def calculate_winter_scharlau(temp_c: float, humidity: float, wind_ms: float) -> float | None:
-    """Calculate winter Scharlau index (-5 to 6°C, humidity >= 40%)."""
+def calculate_winter_scharlau(temp_c: float, humidity: float) -> float | None:
+    """Winter Scharlau index (valid -5 to 6 C, humidity >= 40%).
+
+    Ported from the thermal_comfort integration (dolezsa/thermal_comfort 2.2).
+    Source: https://revistadechimie.ro/pdf/16%20RUSANESCU%204%2019.pdf
+    Returns the index ISH = T - Tc, where Tc is the Scharlau critical temperature.
+    """
     if not (-5 <= temp_c <= 6 and humidity >= 40):
         return None
-    
-    wind_kmh = wind_ms * 3.6
-    s = (0.13 * temp_c + 0.47) * (1 - 0.04 * wind_kmh) - 0.03 * (humidity - 100)
-    return s
+    tc = (0.0003 * humidity) + (0.1497 * humidity) - 7.7133
+    return temp_c - tc
 
 
 def get_winter_scharlau_perception(s: float | None) -> str:
-    """Get perception for winter Scharlau index."""
+    """Perception for the winter Scharlau index (thermal_comfort 2.2 bands)."""
     if s is None:
         return "N/A"
-    if s < -3:
-        return "Very Cold"
-    elif s < -2:
-        return "Cold"
-    elif s < -1:
-        return "Cool"
+    if s <= -3:
+        return "Highly Uncomfortable"
+    elif s <= -1:
+        return "Moderately Uncomfortable"
     elif s < 0:
-        return "Slightly Cool"
-    elif s < 1:
-        return "Comfortable"
+        return "Slightly Uncomfortable"
     else:
-        return "Warm"
-
-
-def calculate_spring_scharlau(temp_c: float, humidity: float) -> float | None:
-    """Calculate spring Scharlau index (6-17°C, humidity >= 30%)."""
-    if not (6 <= temp_c <= 17 and humidity >= 30):
-        return None
-    
-    s = 0.12 * (temp_c - 11.5) ** 2 - 0.02 * (humidity - 65) + (temp_c - 11.5) * 0.4
-    return s
-
-
-def get_spring_scharlau_perception(s: float | None) -> str:
-    """Get perception for spring Scharlau index."""
-    if s is None:
-        return "N/A"
-    if s < -2:
-        return "Too Cold"
-    elif s < -1:
-        return "Cool"
-    elif s < 0:
-        return "Slightly Cool"
-    elif s < 1:
         return "Comfortable"
-    elif s < 2:
-        return "Slightly Warm"
-    else:
-        return "Too Warm"
-
-
-def calculate_autumn_scharlau(temp_c: float, humidity: float, wind_ms: float) -> float | None:
-    """Calculate autumn Scharlau index (5-16°C, humidity >= 35%)."""
-    if not (5 <= temp_c <= 16 and humidity >= 35):
-        return None
-    
-    wind_kmh = wind_ms * 3.6
-    s = 0.15 * (temp_c - 10.5) + 0.35 * (1 - wind_kmh / 20) - 0.015 * (humidity - 70)
-    return s
-
-
-def get_autumn_scharlau_perception(s: float | None) -> str:
-    """Get perception for autumn Scharlau index."""
-    if s is None:
-        return "N/A"
-    if s < -1.5:
-        return "Cold"
-    elif s < -0.5:
-        return "Cool"
-    elif s < 0.5:
-        return "Comfortable"
-    elif s < 1.5:
-        return "Mild"
-    else:
-        return "Warm"
 
 
 def get_season_from_month(month: int) -> str:
-    """Determine meteorological season from month (Northern Hemisphere).
-    
-    Args:
-        month: Month number (1-12)
-    
-    Returns:
-        Season name: "Winter", "Spring", "Summer", or "Autumn"
-    """
+    """Determine meteorological season from month (Northern Hemisphere)."""
     if month in [12, 1, 2]:
         return "Winter"
     elif month in [3, 4, 5]:
@@ -1477,35 +1527,109 @@ def get_season_from_month(month: int) -> str:
         return "Autumn"
 
 
-def get_seasonal_scharlau(temp_c: float, humidity: float, wind_ms: float, month: int) -> tuple[float | None, str, str]:
-    """Get appropriate Scharlau index based on season."""
-    # Determine season using shared helper
+def calculate_spring_scharlau(temp_c: float, humidity: float) -> float | None:
+    """Spring transition comfort index (CUSTOM extension, not part of thermal_comfort).
+
+    thermal_comfort only defines summer/winter Scharlau. Spring and autumn fill the
+    6-17 C gap between them. This uses the Scharlau idea of a signed deviation from a
+    humidity-adjusted comfort temperature, with a spring acclimatisation neutral of
+    ~11 C (the body is still cold-adapted, so it tolerates cooler temperatures).
+    Valid 5-17 C, humidity >= 30%. Negative = cool discomfort, positive = comfortable/mild.
+    """
+    if not (5 <= temp_c <= 17 and humidity >= 30):
+        return None
+    return (temp_c - 11.0) - 0.03 * (humidity - 70)
+
+
+def calculate_autumn_scharlau(temp_c: float, humidity: float) -> float | None:
+    """Autumn transition comfort index (CUSTOM extension, not part of thermal_comfort).
+
+    Same construction as the spring index but with a warm-adapted neutral of ~14 C, so
+    the same temperature reads colder in autumn than in spring (matches the seasonal
+    acclimatisation used by the clothing-insulation model).
+    Valid 4-16 C, humidity >= 30%. Negative = cool discomfort, positive = comfortable/mild.
+    """
+    if not (4 <= temp_c <= 16 and humidity >= 30):
+        return None
+    return (temp_c - 14.0) - 0.03 * (humidity - 70)
+
+
+def get_transition_scharlau_perception(s: float | None) -> str:
+    """Perception for the custom spring/autumn transition indices."""
+    if s is None:
+        return "N/A"
+    if s >= 3:
+        return "Mild"
+    elif s >= 0:
+        return "Comfortable"
+    elif s >= -1.5:
+        return "Slightly Cool"
+    elif s >= -3:
+        return "Cool"
+    elif s >= -5:
+        return "Cold"
+    else:
+        return "Very Cold"
+
+
+def get_seasonal_scharlau(temp_c: float, humidity: float, month: int) -> tuple[float | None, str, str]:
+    """Return the Scharlau comfort index for the calendar season.
+
+    Summer and winter use the thermal_comfort (dolezsa/thermal_comfort 2.2) formulas;
+    spring and autumn use the custom transition indices above. If the season's index is
+    not valid for the current temperature, fall back to whichever thermal_comfort index
+    (summer or winter) is valid, else report not-calculable.
+    """
     season = get_season_from_month(month)
-    
+
     if season == "Winter":
-        value = calculate_winter_scharlau(temp_c, humidity, wind_ms)
-        perception = get_winter_scharlau_perception(value)
-    elif season == "Spring":
-        value = calculate_spring_scharlau(temp_c, humidity)
-        perception = get_spring_scharlau_perception(value)
+        value = calculate_winter_scharlau(temp_c, humidity)
+        if value is not None:
+            return value, get_winter_scharlau_perception(value), "winter"
     elif season == "Summer":
         value = calculate_summer_scharlau(temp_c, humidity)
-        perception = get_summer_scharlau_perception(value)
+        if value is not None:
+            return value, get_summer_scharlau_perception(value), "summer"
+    elif season == "Spring":
+        value = calculate_spring_scharlau(temp_c, humidity)
+        if value is not None:
+            return value, get_transition_scharlau_perception(value), "spring"
     else:  # Autumn
-        value = calculate_autumn_scharlau(temp_c, humidity, wind_ms)
-        perception = get_autumn_scharlau_perception(value)
-    
-    return value, perception, season
+        value = calculate_autumn_scharlau(temp_c, humidity)
+        if value is not None:
+            return value, get_transition_scharlau_perception(value), "autumn"
+
+    # Season index not valid for this temperature: use whichever index is valid.
+    # Prefer the transition index for the current half of the year.
+    candidates = [
+        (calculate_summer_scharlau(temp_c, humidity), get_summer_scharlau_perception, "summer"),
+        (calculate_winter_scharlau(temp_c, humidity), get_winter_scharlau_perception, "winter"),
+    ]
+    if month <= 6:
+        candidates += [
+            (calculate_spring_scharlau(temp_c, humidity), get_transition_scharlau_perception, "spring"),
+            (calculate_autumn_scharlau(temp_c, humidity), get_transition_scharlau_perception, "autumn"),
+        ]
+    else:
+        candidates += [
+            (calculate_autumn_scharlau(temp_c, humidity), get_transition_scharlau_perception, "autumn"),
+            (calculate_spring_scharlau(temp_c, humidity), get_transition_scharlau_perception, "spring"),
+        ]
+    for value, perception_fn, kind in candidates:
+        if value is not None:
+            return value, perception_fn(value), kind
+    return None, "N/A", "none"
 
 
 def calculate_thoms_discomfort_index(temp_c: float, humidity: float) -> float:
-    """Calculate Thom's discomfort index using wet bulb temperature approximation (Stull formula).
-    
-    More accurate than simple formula, accounts for complex humidity effects.
+    """Calculate Thom's discomfort index via a wet-bulb approximation.
+
+    Ported to match the thermal_comfort integration (dolezsa/thermal_comfort 2.2).
+    Note: thermal_comfort applies the 0.00391838 coefficient inside the power
+    term, which differs from the original Stull (2011) wet-bulb formula. This is
+    kept identical to the source on purpose; ask if you want true Stull instead.
     """
     import math
-    
-    # Wet bulb temperature approximation (Stull 2011)
     tw = (temp_c * math.atan(0.151977 * pow(humidity + 8.313659, 1/2)) +
           math.atan(temp_c + humidity) - 
           math.atan(humidity - 1.676331) +
@@ -1543,6 +1667,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         SmhiThunderstormProbabilitySensor(coordinator),
         SmhiSymbolCodeSensor(coordinator),
         SmhiMetadataSensor(coordinator),
+        # Safety sensors (always enabled)
+        SmhiFogProbabilitySensor(coordinator),
+        SmhiBlackIceRiskSensor(coordinator),
+        SmhiWeatherChangeAlertSensor(coordinator),
     ]
     
     # Optional calculated sensors
@@ -1983,7 +2111,11 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
-        precip = clean_value(data.get("precipitation_intensity"), parameter="precipitation_intensity")
+        # SMHI snow1g exposes no "intensity" field; use peak (max) precipitation as the
+        # intensity proxy, falling back to the mean amount.
+        precip = clean_value(data.get("precipitation_amount_max"), parameter="precipitation_amount_max")
+        if precip is None:
+            precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
         attrs = {}
         if temp is None or wind is None:
@@ -2093,7 +2225,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
             attrs["rain_note"] = future_weather["rain_note"]
         
         # Effective temperature (feels-like with wind chill)
-        wind_chill = calculate_wind_chill(temp, wind)
+        wind_chill = calculate_wind_chill(temp, wind * 3.6)
         if wind_chill is not None and wind_chill != temp:
             attrs["effective_temperature"] = round(wind_chill, 1)
         else:
@@ -2114,7 +2246,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         #           - forecast_daily
         # ===================================================================
         
-        # Calculate hourly CLO forecast for all available hours (~240h / 10 days)
+        # Calculate hourly CLO forecast for all available hours (~70h)
         forecast_hourly = calculate_clo_forecast(self.coordinator)
         
         if forecast_hourly:
@@ -2278,12 +2410,8 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
             # Mild weather - use Thom's
             return round(calculate_thoms_discomfort_index(temp, humidity), 1)
         elif wind is not None and temp <= 16:
-            # Cooler weather - use seasonal Scharlau
-            from datetime import datetime
-            current_month = datetime.now().month
-            scharlau_value, _, _ = get_seasonal_scharlau(temp, humidity, wind, current_month)
-            if scharlau_value is not None:
-                return round(temp + scharlau_value, 1)
+            # Cooler weather - Scharlau is a comfort index, not a temperature, so
+            # report a wind-based feels-like here and expose Scharlau as an attribute.
             return round(calculate_feels_like(temp, wind, humidity), 1)
         else:
             return round(temp, 1)
@@ -2304,15 +2432,14 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
         attrs["humidex"] = round(calculate_humidex(temp, humidity), 1)
         attrs["thoms_discomfort"] = round(calculate_thoms_discomfort_index(temp, humidity), 1)
         
-        # Seasonal Scharlau
-        if wind is not None:
-            from datetime import datetime
-            current_month = datetime.now().month
-            scharlau_value, scharlau_perception, season = get_seasonal_scharlau(temp, humidity, wind, current_month)
-            
-            attrs["seasonal_scharlau"] = round(scharlau_value, 2) if scharlau_value is not None else None
-            attrs["seasonal_scharlau_perception"] = scharlau_perception
-            attrs["current_season"] = season
+        # Scharlau comfort index (season-based; summer/winter standard, spring/autumn custom)
+        from datetime import datetime
+        scharlau_value, scharlau_perception, scharlau_kind = get_seasonal_scharlau(
+            temp, humidity, datetime.now().month
+        )
+        attrs["scharlau_index"] = round(scharlau_value, 2) if scharlau_value is not None else None
+        attrs["scharlau_perception"] = scharlau_perception
+        attrs["scharlau_type"] = scharlau_kind
         
         ssi = calculate_summer_simmer_index(temp, humidity)
         attrs["summer_simmer"] = round(ssi, 1)
@@ -2333,8 +2460,11 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
         elif temp >= 10:
             attrs["active_index"] = _translate("thoms_discomfort", self.hass)
         elif wind is not None and temp <= 16:
-            # Keep season name in index (Scharlau is a proper name)
-            attrs["active_index"] = f"{season} Scharlau"
+            # Cooler weather reports feels-like; note which Scharlau index is available
+            if scharlau_kind in ("summer", "winter", "spring", "autumn"):
+                attrs["active_index"] = f"{scharlau_kind.capitalize()} Scharlau"
+            else:
+                attrs["active_index"] = "Feels-like"
         else:
             attrs["active_index"] = _translate("actual_temperature", self.hass)
         
@@ -2611,3 +2741,405 @@ class SmhiHumidityPerceptionSensor(SmhiBaseSensor):
             return HumidityComfort.DRY
         else:
             return HumidityComfort.VERY_DRY
+
+
+class SmhiFogProbabilitySensor(SmhiBaseSensor):
+    """Sensor for fog probability based on visibility and humidity."""
+    _attr_name = "Safety: Fog Probability"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:weather-fog"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_safety_fog_probability"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        visibility = clean_value(data.get("visibility_in_air"), parameter="visibility_in_air")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        
+        if visibility is None or humidity is None:
+            return 0
+        
+        # Base fog probability from visibility
+        if visibility <= 1:
+            visibility_risk = 90
+        elif visibility <= 2:
+            visibility_risk = 70
+        elif visibility <= 5:
+            visibility_risk = 50
+        elif visibility <= 10:
+            visibility_risk = 30
+        else:
+            visibility_risk = 10
+        
+        # Humidity factor
+        if humidity is not None:
+            if humidity >= 95:
+                humidity_bonus = 20
+            elif humidity >= 90:
+                humidity_bonus = 15
+            elif humidity >= 85:
+                humidity_bonus = 10
+            elif humidity >= 80:
+                humidity_bonus = 5
+            else:
+                humidity_bonus = 0
+        else:
+            humidity_bonus = 0
+        
+        # Temperature factor (fog more likely near dew point)
+        temp_factor = 1.0
+        if temp is not None and humidity is not None:
+            dew_point = calculate_dew_point(temp, humidity)
+            temp_spread = abs(temp - dew_point)
+            if temp_spread < 1:
+                temp_factor = 1.3
+            elif temp_spread < 2:
+                temp_factor = 1.15
+        
+        total = int(min((visibility_risk + humidity_bonus) * temp_factor, 100))
+        return total
+
+
+class SmhiBlackIceRiskSensor(SmhiBaseSensor):
+    """Advanced black ice risk assessment using meteorological principles.
+    
+    Black ice is most dangerous because it's transparent and forms unexpectedly.
+    Critical factors:
+    - Temperature exactly at 0°C (±1°C is peak danger)
+    - Falling temperature crossing 0°C
+    - Moisture from precipitation, dew point, or humidity
+    - Low wind (allows ice formation)
+    - Night/early morning (coldest period)
+    """
+    _attr_name = "Safety: Black Ice Risk"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [e.value for e in BlackIceRisk]
+    _attr_icon = "mdi:snowflake-alert"
+    _attr_translation_key = "black_ice_risk"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_safety_black_ice_risk"
+
+    @property
+    def native_value(self):
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+        wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
+        
+        if temp is None:
+            return BlackIceRisk.NONE
+        
+        # Black ice only forms near freezing point
+        if temp < -5 or temp > 5:
+            return BlackIceRisk.NONE
+        
+        # ============================================================
+        # FACTOR 1: Temperature proximity to 0°C (40% weight)
+        # Most dangerous: 0°C ±0.5°C (invisible ice forming)
+        # ============================================================
+        temp_abs = abs(temp)
+        
+        if temp_abs <= 0.5:
+            temp_score = 40  # MAXIMUM DANGER - at freezing point
+        elif temp_abs <= 1.0:
+            temp_score = 35  # Very high - ice actively forming
+        elif temp_abs <= 1.5:
+            temp_score = 28  # High - near freezing
+        elif temp_abs <= 2.0:
+            temp_score = 20  # Moderate - approaching danger zone
+        elif temp_abs <= 3.0:
+            temp_score = 12  # Low-moderate
+        else:
+            temp_score = 5   # Low - outside primary danger zone
+        
+        # ============================================================
+        # FACTOR 2: Moisture availability (25% weight)
+        # Need water to freeze into black ice
+        # ============================================================
+        moisture_score = 0
+        
+        # Recent precipitation is MOST dangerous (wet roads freeze)
+        if precip is not None and precip > 0:
+            if precip > 1.0:
+                moisture_score += 15  # Heavy precipitation
+            elif precip > 0.5:
+                moisture_score += 12  # Moderate precipitation
+            elif precip > 0.1:
+                moisture_score += 8   # Light precipitation
+            else:
+                moisture_score += 5   # Trace precipitation
+        
+        # Dew point analysis (condensation can freeze)
+        if humidity is not None:
+            dew_point = calculate_dew_point(temp, humidity)
+            dew_spread = temp - dew_point
+            
+            # Very close to dew point = condensation = ice
+            if dew_spread < 1:
+                moisture_score += 10  # Condensation forming
+            elif dew_spread < 2:
+                moisture_score += 7   # Near dew point
+            elif dew_spread < 3:
+                moisture_score += 4   # Approaching dew point
+            
+            # High humidity adds risk even without condensation
+            if humidity >= 85:
+                moisture_score += 5
+        
+        # ============================================================
+        # FACTOR 3: Temperature trend (20% weight)
+        # Falling temp crossing 0°C = ice forming NOW
+        # ============================================================
+        trend_score = 0
+        
+        # Check next 3 hours for temperature trend
+        payload = self.coordinator.current_payload()
+        series = payload.get("timeSeries") or []
+        
+        if isinstance(series, list) and len(series) >= 4:
+            future_temps = []
+            for i in range(1, 4):
+                if isinstance(series[i], dict):
+                    future_data = series[i].get("data", {})
+                    if isinstance(future_data, dict):
+                        future_temp = clean_value(
+                            future_data.get("air_temperature"), 
+                            parameter="air_temperature"
+                        )
+                        if future_temp is not None:
+                            future_temps.append(future_temp)
+            
+            if future_temps:
+                avg_future = sum(future_temps) / len(future_temps)
+                temp_change = avg_future - temp
+                
+                # Temperature FALLING = danger increasing
+                if temp_change < -2:
+                    trend_score = 20  # Rapid cooling - high danger
+                elif temp_change < -1:
+                    trend_score = 15  # Moderate cooling
+                elif temp_change < 0:
+                    trend_score = 10  # Slight cooling
+                # Temperature RISING from 0°C = danger decreasing
+                elif temp_change > 1 and temp <= 1:
+                    trend_score = -10  # Thawing - reduce risk
+                else:
+                    trend_score = 5   # Stable near freezing
+        else:
+            # No trend data - use current temp position
+            if -1 <= temp <= 1:
+                trend_score = 10  # At danger zone
+        
+        # ============================================================
+        # FACTOR 4: Time of day (10% weight)
+        # Night/early morning = coldest, most ice forms 4am-8am
+        # ============================================================
+        time_score = 0
+        try:
+            from datetime import datetime
+            current_hour = datetime.now().hour
+            
+            if 4 <= current_hour <= 7:
+                time_score = 10  # Peak danger time (coldest)
+            elif 0 <= current_hour <= 3 or 8 <= current_hour <= 9:
+                time_score = 7   # High risk (cold night/morning)
+            elif 10 <= current_hour <= 14:
+                time_score = 3   # Lower risk (warming)
+            elif 22 <= current_hour <= 23:
+                time_score = 5   # Cooling for night
+            else:
+                time_score = 4   # Late afternoon/evening
+        except Exception:
+            time_score = 5  # Default moderate
+        
+        # ============================================================
+        # FACTOR 5: Wind speed (5% weight)
+        # Low wind = ice can form
+        # High wind = harder to form, but can spread moisture
+        # ============================================================
+        wind_score = 0
+        
+        if wind is not None:
+            if wind < 1:
+                wind_score = 5   # Very calm - ice forms easily
+            elif wind < 2:
+                wind_score = 4   # Light wind
+            elif wind < 4:
+                wind_score = 2   # Moderate wind - less formation
+            else:
+                wind_score = 0   # High wind - difficult to form
+        else:
+            wind_score = 2  # Assume moderate
+        
+        # ============================================================
+        # TOTAL RISK CALCULATION
+        # Maximum possible score: 100
+        # ============================================================
+        total_score = temp_score + moisture_score + trend_score + time_score + wind_score
+        
+        # Ensure within bounds
+        total_score = max(0, min(100, total_score))
+        
+        # Return risk level based on total score
+        # Thresholds calibrated for Swedish winter conditions
+        if total_score >= 70:
+            return BlackIceRisk.VERY_HIGH  # Extreme danger - ice likely forming
+        elif total_score >= 50:
+            return BlackIceRisk.HIGH       # High danger - conditions favorable
+        elif total_score >= 30:
+            return BlackIceRisk.MODERATE   # Moderate danger - watch conditions
+        elif total_score >= 15:
+            return BlackIceRisk.LOW        # Low danger - some risk factors
+        else:
+            return BlackIceRisk.NONE       # Minimal danger
+    
+    @property
+    def extra_state_attributes(self):
+        """Provide detailed breakdown of risk factors."""
+        data = _data(self.coordinator)
+        temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
+        humidity = clean_value(data.get("relative_humidity"), parameter="relative_humidity")
+        precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
+        wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
+        
+        attrs = {
+            "temperature": temp,
+            "humidity": humidity,
+            "precipitation": precip,
+            "wind_speed": wind,
+        }
+        
+        if temp is not None:
+            attrs["temp_from_freezing"] = round(temp, 1)
+            
+            if humidity is not None:
+                dew_point = calculate_dew_point(temp, humidity)
+                attrs["dew_point"] = round(dew_point, 1)
+                attrs["dew_point_spread"] = round(temp - dew_point, 1)
+        
+        # Add trend info if available
+        payload = self.coordinator.current_payload()
+        series = payload.get("timeSeries") or []
+        
+        if isinstance(series, list) and len(series) >= 4:
+            future_temps = []
+            for i in range(1, 4):
+                if isinstance(series[i], dict):
+                    future_data = series[i].get("data", {})
+                    if isinstance(future_data, dict):
+                        future_temp = clean_value(
+                            future_data.get("air_temperature"),
+                            parameter="air_temperature"
+                        )
+                        if future_temp is not None:
+                            future_temps.append(future_temp)
+            
+            if future_temps and temp is not None:
+                avg_future = sum(future_temps) / len(future_temps)
+                attrs["temp_trend_3h"] = round(avg_future - temp, 1)
+                
+                if avg_future < temp:
+                    attrs["trend_direction"] = "falling"
+                elif avg_future > temp:
+                    attrs["trend_direction"] = "rising"
+                else:
+                    attrs["trend_direction"] = "stable"
+        
+        return attrs
+
+
+class SmhiWeatherChangeAlertSensor(SmhiBaseSensor):
+    """ENUM sensor for weather change volatility detection."""
+    _attr_name = "Safety: Weather Change Alert"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [e.value for e in WeatherChangeLevel]
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_translation_key = "weather_change_alert"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry.entry_id}_safety_weather_change_alert"
+
+    @property
+    def native_value(self):
+        payload = self.coordinator.current_payload()
+        series = payload.get("timeSeries") or []
+        
+        if not isinstance(series, list) or len(series) < 6:
+            return WeatherChangeLevel.STABLE
+        
+        # Look at next 6 hours for significant changes
+        changes_score = 0
+        
+        # Get current conditions safely
+        if not isinstance(series[0], dict):
+            return WeatherChangeLevel.STABLE
+        
+        current = series[0].get("data", {})
+        if not isinstance(current, dict):
+            return WeatherChangeLevel.STABLE
+        
+        current_temp = clean_value(current.get("air_temperature"), parameter="air_temperature")
+        current_wind = clean_value(current.get("wind_speed"), parameter="wind_speed")
+        current_precip_prob = clean_value(current.get("probability_of_precipitation"), parameter="probability_of_precipitation")
+        
+        if current_temp is None:
+            return WeatherChangeLevel.STABLE
+        
+        # Check next 6 hours for changes
+        for i in range(1, min(7, len(series))):
+            if not isinstance(series[i], dict):
+                continue
+            
+            future = series[i].get("data", {})
+            if not isinstance(future, dict):
+                continue
+            
+            future_temp = clean_value(future.get("air_temperature"), parameter="air_temperature")
+            future_wind = clean_value(future.get("wind_speed"), parameter="wind_speed")
+            future_precip_prob = clean_value(future.get("probability_of_precipitation"), parameter="probability_of_precipitation")
+            
+            if future_temp is not None:
+                temp_change = abs(future_temp - current_temp)
+                if temp_change >= 10:
+                    changes_score += 25
+                elif temp_change >= 7:
+                    changes_score += 15
+                elif temp_change >= 5:
+                    changes_score += 10
+            
+            if future_wind is not None and current_wind is not None:
+                wind_change = abs(future_wind - current_wind)
+                if wind_change >= 10:
+                    changes_score += 20
+                elif wind_change >= 7:
+                    changes_score += 12
+                elif wind_change >= 5:
+                    changes_score += 8
+            
+            if future_precip_prob is not None and current_precip_prob is not None:
+                precip_change = abs(future_precip_prob - current_precip_prob)
+                if precip_change >= 50:
+                    changes_score += 15
+                elif precip_change >= 30:
+                    changes_score += 10
+        
+        # Return enum based on accumulated changes
+        if changes_score >= 60:
+            return WeatherChangeLevel.SEVERE
+        elif changes_score >= 40:
+            return WeatherChangeLevel.SIGNIFICANT
+        elif changes_score >= 25:
+            return WeatherChangeLevel.MODERATE
+        elif changes_score >= 10:
+            return WeatherChangeLevel.MINOR
+        else:
+            return WeatherChangeLevel.STABLE

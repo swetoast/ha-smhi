@@ -9,6 +9,11 @@
           "use_home_location": "Använd Home Assistant Hem-position",
           "latitude": "Latitud",
           "longitude": "Longitud"
+        },
+        "data_description": {
+          "use_home_location": "När detta är på används Home Assistants hemkoordinater och fälten nedan ignoreras.",
+          "latitude": "Används endast när hemposition är avstängd.",
+          "longitude": "Används endast när hemposition är avstängd."
         }
       },
       "confirm": {
@@ -37,12 +42,17 @@
       },
       "reconfigure": {
         "title": "Konfigurera om SMHI",
-        "description": "Uppdatera koordinater eller växla tillbaka till Home Assistant Hem-position.",
+        "description": "Uppdatera koordinaterna för denna SMHI-plats, eller byt tillbaka till Home Assistants hemposition.\n\nNuvarande: {current_latitude}, {current_longitude}\nHome Assistant hem: {home_latitude}, {home_longitude}",
         "data": {
           "name": "Namn",
           "use_home_location": "Använd Home Assistant Hem-position",
           "latitude": "Latitud",
           "longitude": "Longitud"
+        },
+        "data_description": {
+          "use_home_location": "När detta är på används Home Assistants hemkoordinater och fälten nedan ignoreras.",
+          "latitude": "Används endast när hemposition är avstängd.",
+          "longitude": "Används endast när hemposition är avstängd."
         }
       }
     },
@@ -60,16 +70,40 @@
     "step": {
       "init": {
         "title": "SMHI-alternativ",
-        "description": "Ändringar börjar gälla genom att integrationen laddas om automatiskt.",
-        "data": {
-          "forecast_timeseries": "Antal prognossteg",
-          "scan_interval": "Uppdateringsintervall i minuter",
-          "enable_comfort_sensors": "Aktivera komfortsensor (känns som-temperatur)",
-          "enable_frost_sensors": "Aktivera frostsensorer (risk % och binär)",
-          "enable_slippery_sensors": "Aktivera halksensorer (risk % och binär)",
-          "enable_impact_sensor": "Aktivera väderpåverkanssensor (svårighetsgrad %)",
-          "enable_practical_sensors": "Aktivera praktiska sensorer (kläder, sömn, träning)",
-          "enable_thermal_sensors": "Aktivera termisk komfortsensorer (3 omfattande index)"
+        "description": "Justera hur ofta data hämtas och vilka valfria sensorgrupper som skapas. När du sparar laddas integrationen om automatiskt.",
+        "sections": {
+          "updates": {
+            "name": "Uppdateringar och data",
+            "description": "Hur mycket prognos som behålls och hur ofta den uppdateras.",
+            "data": {
+              "forecast_timeseries": "Prognossteg att behålla",
+              "scan_interval": "Uppdateringsintervall"
+            },
+            "data_description": {
+              "forecast_timeseries": "Övre gräns för antal timsteg (SMHI ger upp till ca 82). Högre ger de härledda prognossensorerna en längre horisont.",
+              "scan_interval": "Minuter mellan uppdateringar från SMHI. SMHI publicerar ungefär varje timme, så 30 minuter räcker gott."
+            }
+          },
+          "sensors": {
+            "name": "Sensorgrupper",
+            "description": "Slå på eller av valfria sensorgrupper. Kärnsensorer (nederbörd, moln, åsksannolikhet, symbol, metadata) skapas alltid.",
+            "data": {
+              "enable_comfort_sensors": "Komfort",
+              "enable_frost_sensors": "Frost",
+              "enable_slippery_sensors": "Halka",
+              "enable_impact_sensor": "Väderpåverkan",
+              "enable_practical_sensors": "Praktiskt",
+              "enable_thermal_sensors": "Termisk komfort"
+            },
+            "data_description": {
+              "enable_comfort_sensors": "Upplevd temperatur (vindavkylning och värmeindex).",
+              "enable_frost_sensors": "Frostrisk i procent och en binär frostsensor.",
+              "enable_slippery_sensors": "Risk för is/snö på väg i procent och en binär halksensor.",
+              "enable_impact_sensor": "Sammanlagd vädergrad (0-100%).",
+              "enable_practical_sensors": "Klädsel (CLO), sömnkomfort och träningssäkerhet.",
+              "enable_thermal_sensors": "Värmeindex, humidex, daggpunkt och termiska komfortindex."
+            }
+          }
         }
       }
     }
@@ -78,6 +112,64 @@
     "binary_sensor": {
       "api_problem": {
         "name": "SMHI API-problem"
+      }
+    },
+    "sensor": {
+      "black_ice_risk": {
+        "state": {
+          "none": "Ingen",
+          "low": "Låg",
+          "moderate": "Måttlig",
+          "high": "Hög",
+          "very_high": "Mycket hög"
+        }
+      },
+      "weather_change_alert": {
+        "state": {
+          "stable": "Stabilt",
+          "minor": "Litet",
+          "moderate": "Måttligt",
+          "significant": "Betydande",
+          "severe": "Kraftigt"
+        }
+      },
+      "exercise_perception": {
+        "state": {
+          "ideal": "Idealt",
+          "safe": "Säkert",
+          "cool": "Svalt",
+          "moderate_risk": "Måttlig risk",
+          "caution_hot": "Varning - varmt",
+          "caution_cold": "Varning - kallt",
+          "high_risk": "Hög risk",
+          "extreme_risk": "Extrem risk",
+          "extreme_danger": "Extrem fara",
+          "high_dehydration_risk": "Hög dehydreringsrisk",
+          "extreme_dehydration_risk": "Extrem dehydreringsrisk",
+          "caution_hydration": "Varning - vätskebalans",
+          "monitor_hydration": "Övervaka vätskebalans",
+          "dry_air_caution": "Varning - torr luft"
+        }
+      },
+      "heat_stress_perception": {
+        "state": {
+          "safe": "Säkert",
+          "caution": "Varning",
+          "extreme_caution": "Extrem försiktighet",
+          "danger": "Fara",
+          "extreme_danger": "Extrem fara"
+        }
+      },
+      "humidity_perception": {
+        "state": {
+          "oppressive": "Kvävande",
+          "very_humid": "Mycket fuktigt",
+          "humid": "Fuktigt",
+          "comfortable": "Bekvämt",
+          "pleasant": "Behagligt",
+          "dry": "Torrt",
+          "very_dry": "Mycket torrt"
+        }
       }
     }
   }

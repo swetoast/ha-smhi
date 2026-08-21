@@ -9,10 +9,10 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SmhiApi
+from .options import SmhiOptionsFlow
 from .const import (
     CONF_ENABLE_COMFORT_SENSORS,
     CONF_ENABLE_FROST_SENSORS,
@@ -50,8 +50,9 @@ async def _validate_input(hass, latitude: float, longitude: float) -> dict[str, 
             payload = await api.validate_point(latitude, longitude)
     except ClientResponseError as err:
         # SMHI API returned an HTTP error
-        if err.status == 400:
-            # Bad request - coordinates out of bounds
+        if err.status in (400, 404):
+            # 404 "Requested point is out of bounds" / 400 bad request: coordinates
+            # are outside the valid SMHI forecast grid.
             raise ValueError(ERROR_OUT_OF_BOUNDS) from err
         # Other HTTP errors
         raise ConnectionError(ERROR_CANNOT_CONNECT) from err
@@ -145,6 +146,7 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=_schema(self.hass, user_input),
             errors=errors,
+            last_step=False,
             description_placeholders={
                 "home_latitude": f"{self.hass.config.latitude:.6f}",
                 "home_longitude": f"{self.hass.config.longitude:.6f}"
@@ -159,6 +161,7 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="confirm",
             data_schema=vol.Schema({}),
+            last_step=False,
             description_placeholders={
                 "name": self._validated_data[CONF_NAME],
                 "latitude": f"{self._validated_data[CONF_LATITUDE]:.6f}",
@@ -225,32 +228,20 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = ERROR_UNKNOWN
             else:
                 return self.async_update_reload_and_abort(entry, data_updates={CONF_NAME: name, CONF_USE_HOME_LOCATION: use_home, CONF_LATITUDE: latitude, CONF_LONGITUDE: longitude})
-        return self.async_show_form(step_id="reconfigure", data_schema=_schema(self.hass, defaults), errors=errors)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_schema(self.hass, defaults),
+            errors=errors,
+            description_placeholders={
+                "current_latitude": f"{float(entry.data.get(CONF_LATITUDE, self.hass.config.latitude)):.6f}",
+                "current_longitude": f"{float(entry.data.get(CONF_LONGITUDE, self.hass.config.longitude)):.6f}",
+                "home_latitude": f"{self.hass.config.latitude:.6f}",
+                "home_longitude": f"{self.hass.config.longitude:.6f}",
+            },
+        )
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
         return SmhiOptionsFlow(config_entry)
 
-
-class SmhiOptionsFlow(config_entries.OptionsFlow):
-    def __init__(self, entry: config_entries.ConfigEntry) -> None:
-        self.entry = entry
-
-    async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-        return self.async_show_form(step_id="init", data_schema=vol.Schema({
-            vol.Optional(CONF_FORECAST_TIMESERIES, default=self.entry.options.get(CONF_FORECAST_TIMESERIES, DEFAULT_FORECAST_TIMESERIES)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=200, step=1, mode=selector.NumberSelectorMode.SLIDER)
-            ),
-            vol.Optional(CONF_SCAN_INTERVAL, default=self.entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MIN)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=5, max=180, step=5, mode=selector.NumberSelectorMode.SLIDER)
-            ),
-            vol.Optional(CONF_ENABLE_COMFORT_SENSORS, default=self.entry.options.get(CONF_ENABLE_COMFORT_SENSORS, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_FROST_SENSORS, default=self.entry.options.get(CONF_ENABLE_FROST_SENSORS, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_SLIPPERY_SENSORS, default=self.entry.options.get(CONF_ENABLE_SLIPPERY_SENSORS, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_IMPACT_SENSOR, default=self.entry.options.get(CONF_ENABLE_IMPACT_SENSOR, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_PRACTICAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_PRACTICAL_SENSORS, True)): selector.BooleanSelector(),
-            vol.Optional(CONF_ENABLE_THERMAL_SENSORS, default=self.entry.options.get(CONF_ENABLE_THERMAL_SENSORS, True)): selector.BooleanSelector(),
-        }))

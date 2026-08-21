@@ -15,9 +15,8 @@ class SmhiApi:
         async with self.session.get(url, headers={"Accept": "application/json", "Accept-Encoding": "gzip"}) as response:
             response.raise_for_status()
             return await response.json(content_type=None)
-    async def get_point_forecast(self, latitude: float, longitude: float, timeseries: int | None = None) -> dict[str, Any]:
-        query = {"timeseries": str(timeseries)} if timeseries is not None else None
-        return await self._get_json(f"geotype/point/lon/{longitude:.6f}/lat/{latitude:.6f}/data.json", query)
+    async def get_point_forecast(self, latitude: float, longitude: float) -> dict[str, Any]:
+        return await self._get_json(f"geotype/point/lon/{longitude:.6f}/lat/{latitude:.6f}/data.json")
     
     async def validate_point(self, latitude: float, longitude: float) -> dict[str, Any]:
         """Validate coordinates by fetching forecast data."""

@@ -9,6 +9,11 @@
           "use_home_location": "Use Home Assistant Home location",
           "latitude": "Latitude",
           "longitude": "Longitude"
+        },
+        "data_description": {
+          "use_home_location": "When on, the Home Assistant Home coordinates are used and the fields below are ignored.",
+          "latitude": "Only used when Home location is turned off.",
+          "longitude": "Only used when Home location is turned off."
         }
       },
       "confirm": {
@@ -37,12 +42,17 @@
       },
       "reconfigure": {
         "title": "Reconfigure SMHI",
-        "description": "Update coordinates or switch back to the Home Assistant Home location.",
+        "description": "Update the coordinates for this SMHI location, or switch back to the Home Assistant Home location.\n\nCurrent: {current_latitude}, {current_longitude}\nHome Assistant Home: {home_latitude}, {home_longitude}",
         "data": {
           "name": "Name",
           "use_home_location": "Use Home Assistant Home location",
           "latitude": "Latitude",
           "longitude": "Longitude"
+        },
+        "data_description": {
+          "use_home_location": "When on, the Home Assistant Home coordinates are used and the fields below are ignored.",
+          "latitude": "Only used when Home location is turned off.",
+          "longitude": "Only used when Home location is turned off."
         }
       }
     },
@@ -60,16 +70,40 @@
     "step": {
       "init": {
         "title": "SMHI options",
-        "description": "Changes are applied by reloading the integration automatically.",
-        "data": {
-          "forecast_timeseries": "Number of forecast steps",
-          "scan_interval": "Update interval in minutes",
-          "enable_comfort_sensors": "Enable comfort sensor (feels like temperature)",
-          "enable_frost_sensors": "Enable frost sensors (risk % and binary)",
-          "enable_slippery_sensors": "Enable slippery sensors (risk % and binary)",
-          "enable_impact_sensor": "Enable weather impact sensor (severity %)",
-          "enable_practical_sensors": "Enable practical sensors (clothing, sleep, exercise)",
-          "enable_thermal_sensors": "Enable thermal comfort sensors (3 comprehensive indices)"
+        "description": "Adjust how often data is fetched and which optional sensor groups are created. Saving reloads the integration automatically.",
+        "sections": {
+          "updates": {
+            "name": "Updates and data",
+            "description": "How much forecast to keep and how often to refresh it.",
+            "data": {
+              "forecast_timeseries": "Forecast steps to keep",
+              "scan_interval": "Update interval"
+            },
+            "data_description": {
+              "forecast_timeseries": "Upper limit on hourly forecast steps (SMHI provides up to ~82). Higher gives the derived forecast sensors a longer horizon.",
+              "scan_interval": "Minutes between updates from SMHI. SMHI publishes roughly hourly, so 30 minutes is plenty."
+            }
+          },
+          "sensors": {
+            "name": "Sensor groups",
+            "description": "Turn optional sensor groups on or off. Core sensors (precipitation, clouds, thunderstorm probability, symbol, metadata) are always created.",
+            "data": {
+              "enable_comfort_sensors": "Comfort",
+              "enable_frost_sensors": "Frost",
+              "enable_slippery_sensors": "Slippery",
+              "enable_impact_sensor": "Weather impact",
+              "enable_practical_sensors": "Practical",
+              "enable_thermal_sensors": "Thermal comfort"
+            },
+            "data_description": {
+              "enable_comfort_sensors": "Feels-like temperature (wind chill and heat index).",
+              "enable_frost_sensors": "Frost risk percentage and a binary frost sensor.",
+              "enable_slippery_sensors": "Road ice/snow risk percentage and a binary slippery sensor.",
+              "enable_impact_sensor": "Overall weather severity score (0-100%).",
+              "enable_practical_sensors": "Clothing (CLO), sleep comfort and exercise safety.",
+              "enable_thermal_sensors": "Heat index, humidex, dew point and thermal comfort indices."
+            }
+          }
         }
       }
     }
@@ -78,6 +112,64 @@
     "binary_sensor": {
       "api_problem": {
         "name": "SMHI API problem"
+      }
+    },
+    "sensor": {
+      "black_ice_risk": {
+        "state": {
+          "none": "None",
+          "low": "Low",
+          "moderate": "Moderate",
+          "high": "High",
+          "very_high": "Very high"
+        }
+      },
+      "weather_change_alert": {
+        "state": {
+          "stable": "Stable",
+          "minor": "Minor",
+          "moderate": "Moderate",
+          "significant": "Significant",
+          "severe": "Severe"
+        }
+      },
+      "exercise_perception": {
+        "state": {
+          "ideal": "Ideal",
+          "safe": "Safe",
+          "cool": "Cool",
+          "moderate_risk": "Moderate risk",
+          "caution_hot": "Caution - hot",
+          "caution_cold": "Caution - cold",
+          "high_risk": "High risk",
+          "extreme_risk": "Extreme risk",
+          "extreme_danger": "Extreme danger",
+          "high_dehydration_risk": "High dehydration risk",
+          "extreme_dehydration_risk": "Extreme dehydration risk",
+          "caution_hydration": "Caution - hydration",
+          "monitor_hydration": "Monitor hydration",
+          "dry_air_caution": "Dry air caution"
+        }
+      },
+      "heat_stress_perception": {
+        "state": {
+          "safe": "Safe",
+          "caution": "Caution",
+          "extreme_caution": "Extreme caution",
+          "danger": "Danger",
+          "extreme_danger": "Extreme danger"
+        }
+      },
+      "humidity_perception": {
+        "state": {
+          "oppressive": "Oppressive",
+          "very_humid": "Very humid",
+          "humid": "Humid",
+          "comfortable": "Comfortable",
+          "pleasant": "Pleasant",
+          "dry": "Dry",
+          "very_dry": "Very dry"
+        }
       }
     }
   }

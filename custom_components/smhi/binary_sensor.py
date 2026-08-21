@@ -17,9 +17,12 @@ def _data(coordinator):
 
 def calculate_dew_point(temp_c: float, humidity: float) -> float:
     """Calculate dew point using Magnus formula."""
+    import math
     a = 17.27
     b = 237.7
-    alpha = ((a * temp_c) / (b + temp_c)) + (humidity / 100.0)
+    # Guard against log(0); SMHI relative humidity is a 0-100 percentage.
+    rh_fraction = max(humidity, 1e-3) / 100.0
+    alpha = ((a * temp_c) / (b + temp_c)) + math.log(rh_fraction)
     return (b * alpha) / (a - alpha)
 
 

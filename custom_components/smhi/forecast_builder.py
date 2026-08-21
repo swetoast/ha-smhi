@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.weather import Forecast
@@ -269,22 +270,34 @@ class ForecastBuilder:
 
     def _group_by_day_night(self) -> dict[tuple[Any, bool], list[dict[str, Any]]]:
         """Group time series items by date and day/night period.
-        
+
+        Daytime is [DAYTIME_START_HOUR, DAYTIME_END_HOUR). Night hours before
+        DAYTIME_START_HOUR are attributed to the previous day's night so each night
+        period is contiguous (evening through the following morning) and the period
+        start times stay in chronological order.
+
         Returns:
             Dictionary mapping (date, is_daytime) tuple to list of items
         """
         grouped: dict[tuple[Any, bool], list[dict[str, Any]]] = defaultdict(list)
-        
+
         for item in self.series:
             if not isinstance(item, dict):
                 continue
             parsed = parse_time(item.get("time"))
             if parsed is None:
                 continue
-            
+
             local = dt_util.as_local(parsed)
-            is_daytime = DAYTIME_START_HOUR <= local.hour < DAYTIME_END_HOUR
-            key = (local.date(), is_daytime)
+            if DAYTIME_START_HOUR <= local.hour < DAYTIME_END_HOUR:
+                key = (local.date(), True)
+            else:
+                night_date = (
+                    local.date()
+                    if local.hour >= DAYTIME_END_HOUR
+                    else (local - timedelta(days=1)).date()
+                )
+                key = (night_date, False)
             grouped[key].append(item)
-        
+
         return grouped
