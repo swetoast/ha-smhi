@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_LAST_ERROR, ATTR_LAST_SUCCESS, ATTR_STALE, CONF_ENABLE_FROST_SENSORS, CONF_ENABLE_SLIPPERY_SENSORS, CONF_NAME, DOMAIN
+from .const import ATTR_LAST_ERROR, ATTR_LAST_SUCCESS, CONF_ENABLE_FROST_SENSORS, CONF_ENABLE_SLIPPERY_SENSORS, DOMAIN
+from .entity import async_remove_stale_entities, smhi_device_info
 from .helpers import clean_value, current_data_from_payload, frozen_part_fraction, frozen_part_percent
 
 
@@ -37,6 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     if entry.options.get(CONF_ENABLE_SLIPPERY_SENSORS, True):
         sensors.append(SmhiSlipperyConditionsBinarySensor(coordinator))
     
+    async_remove_stale_entities(hass, entry, "binary_sensor", {sensor.unique_id for sensor in sensors})
     async_add_entities(sensors)
 
 
@@ -53,13 +55,12 @@ class SmhiApiProblemBinarySensor(CoordinatorEntity, BinarySensorEntity):
     
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": self.coordinator.entry.data.get(CONF_NAME, "SMHI"),
-            "manufacturer": "SMHI",
-            "model": "Open Data forecast",
-            "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
-        }
+        return smhi_device_info(self.coordinator.entry)
+
+    @property
+    def available(self) -> bool:
+        """Stay available when an update fails, since that is when this sensor turns on."""
+        return True
     
     @property
     def is_on(self) -> bool:
@@ -83,13 +84,12 @@ class SmhiFrostPossibleBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": self.coordinator.entry.data.get(CONF_NAME, "SMHI"),
-            "manufacturer": "SMHI",
-            "model": "Open Data forecast",
-            "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
-        }
+        return smhi_device_info(self.coordinator.entry)
+
+    @property
+    def available(self) -> bool:
+        """Keep reporting from the last good forecast while SMHI is unreachable."""
+        return bool(self.coordinator.current_payload())
 
     @property
     def is_on(self) -> bool:
@@ -168,13 +168,12 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": self.coordinator.entry.data.get(CONF_NAME, "SMHI"),
-            "manufacturer": "SMHI",
-            "model": "Open Data forecast",
-            "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
-        }
+        return smhi_device_info(self.coordinator.entry)
+
+    @property
+    def available(self) -> bool:
+        """Keep reporting from the last good forecast while SMHI is unreachable."""
+        return bool(self.coordinator.current_payload())
 
     @property
     def is_on(self) -> bool:

@@ -63,7 +63,8 @@
       "unknown": "Unexpected error while validating setup. Check the Home Assistant logs."
     },
     "abort": {
-      "already_configured": "SMHI is already configured for these coordinates."
+      "already_configured": "SMHI is already configured for these coordinates.",
+      "reconfigure_successful": "The SMHI location was updated."
     }
   },
   "options": {

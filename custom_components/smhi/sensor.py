@@ -8,33 +8,32 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 
 _LOGGER = logging.getLogger(__name__)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength, UnitOfTemperature
-try:
-    from homeassistant.const import UnitOfPrecipitationDepth
-except ImportError:
-    class UnitOfPrecipitationDepth:  # type: ignore[no-redef]
-        MILLIMETERS = "mm"
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfLength,
+    UnitOfPrecipitationDepth,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_APPROVED_TIME,
     ATTR_CREATED_TIME,
     ATTR_GRID_POINT,
-    ATTR_LAST_ERROR,
-    ATTR_LAST_SUCCESS,
     ATTR_REFERENCE_TIME,
-    ATTR_STALE,
     CONF_ENABLE_COMFORT_SENSORS,
     CONF_ENABLE_FROST_SENSORS,
     CONF_ENABLE_IMPACT_SENSOR,
     CONF_ENABLE_PRACTICAL_SENSORS,
     CONF_ENABLE_SLIPPERY_SENSORS,
     CONF_ENABLE_THERMAL_SENSORS,
-    CONF_NAME,
     DOMAIN,
 )
+from .entity import async_remove_stale_entities, smhi_device_info
 from .helpers import (
     clean_value,
     condition_from_symbol,
@@ -478,11 +477,10 @@ def calculate_clo_value(temp_c: float, wind_ms: float, month: int = None) -> flo
         month: Month (1-12) for seasonal adjustment, auto-detected if None
     """
     import math
-    from datetime import datetime
     
-    # Auto-detect current month if not provided
+    # Auto-detect current month if not provided (in Home Assistant's time zone)
     if month is None:
-        month = datetime.now().month
+        month = dt_util.now().month
     
     # SEASONAL ADJUSTMENT - Swedish acclimatization
     # Determine season using shared helper function
@@ -1045,7 +1043,7 @@ def calculate_daily_clo_summary(forecast: list[dict]) -> list[dict]:
     for item in forecast:
         try:
             dt = datetime.fromisoformat(item["time"].replace("Z", "+00:00"))
-            date_key = dt.date().isoformat()
+            date_key = dt_util.as_local(dt).date().isoformat()
             by_date[date_key].append(item)
         except Exception:
             continue
@@ -1713,6 +1711,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             SmhiHumidityPerceptionSensor(coordinator),
         ])
     
+    async_remove_stale_entities(hass, entry, "sensor", {sensor.unique_id for sensor in sensors})
     async_add_entities(sensors)
 
 
@@ -1721,13 +1720,7 @@ class SmhiBaseSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": self.coordinator.entry.data.get(CONF_NAME, "SMHI"),
-            "manufacturer": "SMHI",
-            "model": "Open Data forecast",
-            "configuration_url": "https://opendata.smhi.se/metfcst/snow1gv1/",
-        }
+        return smhi_device_info(self.coordinator.entry)
 
     @property
     def available(self) -> bool:
@@ -1879,7 +1872,7 @@ class SmhiMetadataSensor(SmhiBaseSensor):
 
     @property
     def native_value(self):
-        return self.coordinator.current_payload().get("referenceTime") or self.coordinator.approved_reference_time
+        return self.coordinator.current_payload().get("referenceTime")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -1888,11 +1881,12 @@ class SmhiMetadataSensor(SmhiBaseSensor):
         grid = {"lon": coords[0], "lat": coords[1]} if isinstance(coords, list) and len(coords) >= 2 else None
         attrs = {}
         attrs.update({
-            ATTR_APPROVED_TIME: self.coordinator.approved_time,
+            # snow1g publishes no separate approved time; it equals the created time.
+            ATTR_APPROVED_TIME: payload.get("createdTime"),
             ATTR_CREATED_TIME: payload.get("createdTime"),
-            ATTR_REFERENCE_TIME: payload.get("referenceTime") or self.coordinator.approved_reference_time,
+            ATTR_REFERENCE_TIME: payload.get("referenceTime"),
             ATTR_GRID_POINT: grid,
-            "available_times_count": len(self.coordinator.times),
+            "available_times_count": self.coordinator.available_steps,
         })
         return attrs
 
@@ -2065,6 +2059,9 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
     _attr_native_unit_of_measurement = "CLO"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:hanger"
+    # The forecasts are derived data that changes on every update; keep them out
+    # of the recorder so the database does not store a copy per state change.
+    _unrecorded_attributes = frozenset({"forecast_hourly", "forecast_daily"})
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator)
@@ -2210,26 +2207,12 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         # Activity mode (default sedentary, could be extended)
         attrs["activity_mode"] = "sedentary"
         
-        # ===================================================================
-        # CLO FORECAST - Uses all available SMHI forecast hours
-        # IMPORTANT: Exclude from recorder to prevent database bloat!
-        # Add to configuration.yaml:
-        #   recorder:
-        #     exclude:
-        #       entity_attributes:
-        #         sensor.smhi_practical_clothing:
-        #           - forecast_hourly
-        #           - forecast_daily
-        # ===================================================================
-        
-        # Calculate hourly CLO forecast for all available hours (~70h)
+        # CLO forecast for every kept forecast step, plus a summary per local day.
+        # Both are excluded from the recorder through _unrecorded_attributes.
         forecast_hourly = calculate_clo_forecast(self.coordinator)
         
         if forecast_hourly:
-            # Full hourly forecast (exclude from recorder!)
             attrs["forecast_hourly"] = forecast_hourly
-            
-            # Daily summaries (exclude from recorder!)
             attrs["forecast_daily"] = calculate_daily_clo_summary(forecast_hourly)
         
         return attrs
@@ -2409,9 +2392,8 @@ class SmhiThermalComfortIndexSensor(SmhiBaseSensor):
         attrs["thoms_discomfort"] = round(calculate_thoms_discomfort_index(temp, humidity), 1)
         
         # Scharlau comfort index (season-based; summer/winter standard, spring/autumn custom)
-        from datetime import datetime
         scharlau_value, scharlau_perception, scharlau_kind = get_seasonal_scharlau(
-            temp, humidity, datetime.now().month
+            temp, humidity, dt_util.now().month
         )
         attrs["scharlau_index"] = round(scharlau_value, 2) if scharlau_value is not None else None
         attrs["scharlau_perception"] = scharlau_perception
@@ -2920,8 +2902,7 @@ class SmhiBlackIceRiskSensor(SmhiBaseSensor):
         # ============================================================
         time_score = 0
         try:
-            from datetime import datetime
-            current_hour = datetime.now().hour
+            current_hour = dt_util.now().hour
             
             if 4 <= current_hour <= 7:
                 time_score = 10  # Peak danger time (coldest)

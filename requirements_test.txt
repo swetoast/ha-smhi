@@ -1,0 +1,4 @@
+# Pins Home Assistant 2025.12.2 and the matching test helpers.
+pytest-homeassistant-custom-component==0.13.300
+# Home Assistant's DNS resolver (aiodns 3.5) does not work with pycares 5.
+pycares<5

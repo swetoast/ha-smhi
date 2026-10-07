@@ -4,7 +4,6 @@ import asyncio
 from typing import Any
 
 from aiohttp import ClientConnectorError, ClientResponseError, ServerTimeoutError
-import async_timeout
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -46,7 +45,7 @@ async def _validate_input(hass, latitude: float, longitude: float) -> dict[str, 
     api = SmhiApi(async_get_clientsession(hass))
     
     try:
-        async with async_timeout.timeout(SETUP_VALIDATION_TIMEOUT):
+        async with asyncio.timeout(SETUP_VALIDATION_TIMEOUT):
             payload = await api.validate_point(latitude, longitude)
     except ClientResponseError as err:
         # SMHI API returned an HTTP error
@@ -227,7 +226,25 @@ class SmhiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception:
                 errors["base"] = ERROR_UNKNOWN
             else:
-                return self.async_update_reload_and_abort(entry, data_updates={CONF_NAME: name, CONF_USE_HOME_LOCATION: use_home, CONF_LATITUDE: latitude, CONF_LONGITUDE: longitude})
+                # The unique id is the location, so it has to follow the entry when it moves.
+                unique_id = f"{DOMAIN}_{latitude:.6f}_{longitude:.6f}"
+                for other in self._async_current_entries(include_ignore=False):
+                    if other.entry_id != entry.entry_id and other.unique_id == unique_id:
+                        return self.async_abort(reason="already_configured")
+                # The entry's update listener reloads it, so one reload happens, not two.
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    title=name,
+                    unique_id=unique_id,
+                    data={
+                        **entry.data,
+                        CONF_NAME: name,
+                        CONF_USE_HOME_LOCATION: use_home,
+                        CONF_LATITUDE: latitude,
+                        CONF_LONGITUDE: longitude,
+                    },
+                )
+                return self.async_abort(reason="reconfigure_successful")
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_schema(self.hass, defaults),

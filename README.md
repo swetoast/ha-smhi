@@ -6,7 +6,7 @@ Custom Home Assistant integration for SMHI (Sveriges Meteorologiska och Hydrolog
 
 ## Features
 
-- Weather entity with current conditions and hourly forecasts
+- Weather entity with current conditions and hourly, twice-daily and daily forecasts
 - Precipitation tracking with ensemble predictions
 - Cloud coverage analysis by altitude
 - Thunderstorm probability monitoring
@@ -89,9 +89,11 @@ After setup, click Configure on the SMHI integration:
 
 ## Entities
 
+Entity IDs below assume the default name `SMHI`. Turning a sensor group off in the options removes its entities.
+
 ### Weather Entity
 
-- weather.smhi - Current conditions with hourly forecasts (temperature, pressure, humidity, wind, cloud coverage, precipitation, visibility)
+- weather.smhi - Current conditions with hourly, twice-daily and daily forecasts (temperature, pressure, humidity, wind, cloud coverage, precipitation, visibility). The forecast is hourly for roughly the first 2.5 days and coarser after that.
 
 ### Core Sensors (Always Active)
 
@@ -99,12 +101,15 @@ After setup, click Configure on the SMHI integration:
 - sensor.smhi_clouds - Cloud coverage in octas (0-8) with altitude breakdown (low, medium, high)
 - sensor.smhi_thunderstorm_probability - Probability of thunderstorms (%)
 - sensor.smhi_symbol_code - SMHI weather symbol code (1-27)
-- sensor.smhi_metadata - API metadata and grid point information
-- binary_sensor.smhi_api_problem - API health status (ON when issues detected)
+- sensor.smhi_metadata - Forecast run time and grid point information
+- sensor.smhi_safety_fog_probability - Safety: Fog Probability - Fog likelihood from visibility and humidity (%)
+- sensor.smhi_safety_black_ice_risk - Safety: Black Ice Risk - none, low, moderate, high or very_high
+- sensor.smhi_safety_weather_change_alert - Safety: Weather Change Alert - stable, minor, moderate, significant or severe
+- binary_sensor.smhi_api_problem - API health status (ON while updates fail; other entities keep the last forecast)
 
 ### Comfort Sensors
 
-- sensor.smhi_feels_like - Comfort: Feels Like - Apparent temperature combining wind chill and heat index (°C)
+- sensor.smhi_comfort_feels_like - Comfort: Feels Like - Apparent temperature combining wind chill and heat index (°C)
 
 ### Frost Sensors
 
@@ -118,19 +123,26 @@ After setup, click Configure on the SMHI integration:
 
 ### Impact Sensor
 
-- sensor.smhi_weather_impact - Impact: Severity - Overall weather severity score (0-100%)
+- sensor.smhi_impact_severity - Impact: Severity - Overall weather severity score (0-100%)
 
 ### Practical Sensors
 
-- sensor.smhi_clothing_insulation - Practical: Clothing - Recommended clothing insulation in CLO units
-- sensor.smhi_sleep_comfort - Practical: Sleep - Sleep comfort score based on temperature and humidity (%)
-- sensor.smhi_exercise_safety - Practical: Exercise - Outdoor exercise safety score (%)
+- sensor.smhi_practical_clothing - Practical: Clothing - Recommended clothing insulation in CLO units, with a CLO forecast in its attributes
+- sensor.smhi_practical_sleep - Practical: Sleep - Sleep comfort score based on temperature and humidity (%)
+- sensor.smhi_practical_exercise - Practical: Exercise - Outdoor exercise safety score (%)
+- sensor.smhi_practical_exercise_perception - Practical: Exercise Perception - Exercise safety category
 
 ### Thermal Comfort Sensors
 
 - sensor.smhi_thermal_comfort - Thermal: Comfort - Auto-selected thermal comfort index (°C)
-- sensor.smhi_humidity_analysis - Thermal: Humidity - Dew point temperature with humidity metrics (°C)
-- sensor.smhi_heat_stress_level - Thermal: Heat Stress - Heat stress assessment (0-100%)
+- sensor.smhi_thermal_humidity - Thermal: Humidity - Dew point temperature with humidity metrics (°C)
+- sensor.smhi_thermal_heat_stress - Thermal: Heat Stress - Heat stress assessment (0-100%)
+- sensor.smhi_thermal_heat_stress_perception - Thermal: Heat Stress Perception - Heat stress risk level
+- sensor.smhi_thermal_humidity_perception - Thermal: Humidity Perception - Humidity comfort category
+
+### Recorder
+
+The large forecast attributes (`raw_forecast` and `raw_current` on the weather entity, `forecast_hourly` and `forecast_daily` on the clothing sensor) are available to dashboards but are not written to the recorder database. No `recorder:` configuration is needed.
 
 ## Advanced Formula Improvements
 
@@ -182,19 +194,17 @@ Automatically detects Home Assistant language and translates sensor attributes:
 
 ### Seasonal Scharlau Perception
 
-Automatically adapts comfort perception based on season:
+The Scharlau comfort index is exposed as the `scharlau_index`, `scharlau_perception` and `scharlau_type` attributes of `sensor.smhi_thermal_comfort`. The index is chosen by calendar season. When the season's index is not valid for the current temperature, whichever index is valid is used instead.
 
-**Winter (December-February)**: -5°C to 6°C, uses temperature, humidity, and wind
-- Perception: Very Cold → Cold → Cool → Slightly Cool → Comfortable → Warm
+**Summer (June-August)**: 17°C to 39°C, humidity at least 30%. Same formula as the [thermal_comfort](https://github.com/dolezsa/thermal_comfort) integration.
 
-**Spring (March-May)**: 6°C to 17°C, uses temperature and humidity
-- Perception: Too Cold → Cool → Slightly Cool → Comfortable → Slightly Warm → Too Warm
+**Winter (December-February)**: -5°C to 6°C, humidity at least 40%. Same formula as thermal_comfort.
+- Summer and winter perception: Highly Uncomfortable → Moderately Uncomfortable → Slightly Uncomfortable → Comfortable
 
-**Summer (June-August)**: 17°C to 39°C, uses temperature and humidity
-- Perception: Cold → Cool → Slightly Cool → Comfortable → Slightly Warm → Warm → Hot
+**Spring (March-May)**: 5°C to 17°C, humidity at least 30%. Custom index for the range thermal_comfort does not cover, with a comfort point near 11°C.
 
-**Autumn (September-November)**: 5°C to 16°C, uses temperature, humidity, and wind
-- Perception: Cold → Cool → Comfortable → Mild → Warm
+**Autumn (September-November)**: 4°C to 16°C, humidity at least 30%. Custom index with a comfort point near 14°C, so the same temperature reads colder than in spring.
+- Spring and autumn perception: Very Cold → Cold → Cool → Slightly Cool → Comfortable → Mild
 
 ### Other Thermal Indices
 

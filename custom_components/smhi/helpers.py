@@ -134,6 +134,22 @@ def max_value(values, *, parameter: str | None = None):
     return max(cleaned)
 
 
+def mean_bearing(values) -> float | None:
+    """Average compass bearings on the circle, so 350 and 10 degrees give 0, not 180."""
+    import math
+
+    cleaned = [clean_value(v, parameter="wind_from_direction") for v in values]
+    cleaned = [v for v in cleaned if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    if not cleaned:
+        return None
+    east = sum(math.sin(math.radians(v)) for v in cleaned)
+    north = sum(math.cos(math.radians(v)) for v in cleaned)
+    if abs(east) < 1e-9 and abs(north) < 1e-9:
+        return None  # winds cancel out exactly, there is no mean direction
+    bearing = round(math.degrees(math.atan2(east, north)) % 360, 1)
+    return 0.0 if bearing >= 360 else bearing  # 359.96 rounds up to 360, which is north
+
+
 def sum_value(values):
     """Sum cleaned values."""
     cleaned = [v for v in values if v is not None]

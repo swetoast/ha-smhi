@@ -13,6 +13,7 @@ from .helpers import (
     clean_value,
     condition_from_symbol,
     max_value,
+    mean_bearing,
     min_value,
     most_common,
     octas_to_percent,
@@ -209,10 +210,7 @@ class ForecastBuilder:
                 (data.get("wind_speed_of_gust") for data in datas),
                 parameter="wind_speed_of_gust",
             ),
-            "wind_bearing": avg(
-                (data.get("wind_from_direction") for data in datas), 
-                parameter="wind_from_direction"
-            ),
+            "wind_bearing": mean_bearing(data.get("wind_from_direction") for data in datas),
             "cloud_coverage": avg(
                 (octas_to_percent(data.get("cloud_area_fraction")) for data in datas)
             ),
@@ -223,6 +221,14 @@ class ForecastBuilder:
             ),
         }
         
+        # Averages and sums carry float noise (31.166666666666668, 3.5999999999999996).
+        for key, digits in (("native_pressure", 1), ("native_precipitation", 1)):
+            if row.get(key) is not None:
+                row[key] = round(row[key], digits)
+        for key in ("humidity", "cloud_coverage"):
+            if row.get(key) is not None:
+                row[key] = int(round(row[key]))
+
         if is_daytime is not None:
             row["is_daytime"] = is_daytime
         

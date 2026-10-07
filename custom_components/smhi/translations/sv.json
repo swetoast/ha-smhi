@@ -63,7 +63,8 @@
       "unknown": "Oväntat fel vid validering. Kontrollera Home Assistant-loggen."
     },
     "abort": {
-      "already_configured": "SMHI är redan konfigurerad för dessa koordinater."
+      "already_configured": "SMHI är redan konfigurerad för dessa koordinater.",
+      "reconfigure_successful": "SMHI-platsen har uppdaterats."
     }
   },
   "options": {

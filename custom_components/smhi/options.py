@@ -58,6 +58,10 @@ class SmhiOptionsFlow(config_entries.OptionsFlow):
             flat: dict[str, Any] = {}
             for section_key in (SECTION_UPDATES, SECTION_SENSORS):
                 flat.update(user_input.get(section_key, {}))
+            # Sliders return floats; both settings are whole numbers.
+            for key in (CONF_FORECAST_TIMESERIES, CONF_SCAN_INTERVAL):
+                if key in flat:
+                    flat[key] = int(flat[key])
             return self.async_create_entry(title="", data=flat)
 
         opts = self.entry.options
