@@ -43,6 +43,7 @@ from .helpers import (
     frozen_probability_percent,
     octas_to_percent,
     ptype_description,
+    sun_is_up,
     symbol_description,
     thunderstorm_percent,
 )
@@ -1830,14 +1831,20 @@ class SmhiSymbolCodeSensor(SmhiBaseSensor):
     def native_value(self):
         return clean_value(_data(self.coordinator).get("symbol_code"), parameter="symbol_code")
 
+    def _condition(self) -> str | None:
+        """Same condition as the weather entity, including clear-night after sunset."""
+        daylight = sun_is_up(self.coordinator.latitude, self.coordinator.longitude, dt_util.utcnow())
+        return condition_from_symbol(_data(self.coordinator), daylight=daylight)
+
     @property
     def icon(self) -> str:
         """Return dynamic icon based on weather condition."""
-        condition = condition_from_symbol(_data(self.coordinator))
+        condition = self._condition()
         
         # Map conditions to MDI icons
         icon_map = {
             "sunny": "mdi:weather-sunny",
+            "clear-night": "mdi:weather-night",
             "partlycloudy": "mdi:weather-partly-cloudy",
             "cloudy": "mdi:weather-cloudy",
             "fog": "mdi:weather-fog",
@@ -1857,7 +1864,7 @@ class SmhiSymbolCodeSensor(SmhiBaseSensor):
         attrs = {}
         attrs["symbol_code"] = self.native_value
         attrs["symbol_description"] = symbol_description(data.get("symbol_code"))
-        attrs["home_assistant_condition"] = condition_from_symbol(data)
+        attrs["home_assistant_condition"] = self._condition()
         return attrs
 
 
@@ -2499,6 +2506,41 @@ class SmhiHumidityAnalysisSensor(SmhiBaseSensor):
         return attrs
 
 
+def calculate_heat_stress(temp_c: float, humidity: float) -> int:
+    """Heat stress percentage (0-100), with thresholds lowered for the Swedish climate.
+
+    The temperature part is a continuous rising curve: 0 at 18 C, 5 at 20 C, 15 at
+    22 C, 30 at 25 C, 50 at 28 C, 80 at 32 C and 100 from 35 C. Humidity scales it up.
+    """
+    if temp_c >= 35:
+        stress = 100.0
+    elif temp_c >= 32:
+        stress = 80 + (temp_c - 32) * (20 / 3)
+    elif temp_c >= 28:
+        stress = 50 + (temp_c - 28) * 7.5
+    elif temp_c >= 25:
+        stress = 30 + (temp_c - 25) * (20 / 3)
+    elif temp_c >= 22:
+        stress = 15 + (temp_c - 22) * 5
+    elif temp_c >= 20:
+        stress = 5 + (temp_c - 20) * 5
+    elif temp_c >= 18:
+        stress = (temp_c - 18) * 2.5
+    else:
+        stress = 0.0
+
+    if humidity >= 85:
+        stress *= 1.4
+    elif humidity >= 75:
+        stress *= 1.3
+    elif humidity >= 65:
+        stress *= 1.2
+    elif humidity >= 50:
+        stress *= 1.1
+
+    return min(100, int(stress))
+
+
 class SmhiHeatStressLevelSensor(SmhiBaseSensor):
     """Comprehensive heat stress assessment sensor."""
     _attr_name = "Thermal: Heat Stress"
@@ -2520,43 +2562,7 @@ class SmhiHeatStressLevelSensor(SmhiBaseSensor):
         if temp is None or humidity is None:
             return 0
         
-        # Calculate combined heat stress score (adjusted for Swedish expectations)
-        stress = 0
-        
-        # Base temperature stress (lower thresholds for Swedish climate)
-        if temp >= 35:
-            # Extreme for Sweden
-            stress += 100
-        elif temp >= 32:
-            # Very rare, very stressful
-            stress += 80 + (temp - 32) * 7
-        elif temp >= 28:
-            # Rare hot weather
-            stress += 50 + (temp - 28) * 7.5
-        elif temp >= 25:
-            # Hot for Swedish standards
-            stress += 30 + (temp - 25) * 6.5
-        elif temp >= 22:
-            # Warm, starting to be uncomfortable
-            stress += 15 + (temp - 22) * 5
-        elif temp >= 20:
-            # Warm side of comfortable
-            stress += (temp - 20) * 7.5
-        elif temp >= 18:
-            # Comfortable to slightly warm
-            stress += (temp - 18) * 2.5
-        
-        # Humidity multiplier (especially impactful in Swedish humid summers)
-        if humidity >= 85:
-            stress *= 1.4
-        elif humidity >= 75:
-            stress *= 1.3
-        elif humidity >= 65:
-            stress *= 1.2
-        elif humidity >= 50:
-            stress *= 1.1
-        
-        return min(100, int(stress))
+        return calculate_heat_stress(temp, humidity)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -2620,33 +2626,7 @@ class SmhiHeatStressPerceptionSensor(SmhiBaseSensor):
         if temp is None or humidity is None:
             return None
         
-        # Calculate heat stress percentage
-        stress = 0
-        if temp >= 35:
-            stress += 100
-        elif temp >= 32:
-            stress += 80 + (temp - 32) * 7
-        elif temp >= 28:
-            stress += 50 + (temp - 28) * 7.5
-        elif temp >= 25:
-            stress += 30 + (temp - 25) * 6.5
-        elif temp >= 22:
-            stress += 15 + (temp - 22) * 5
-        elif temp >= 20:
-            stress += (temp - 20) * 7.5
-        elif temp >= 18:
-            stress += (temp - 18) * 2.5
-        
-        if humidity >= 85:
-            stress *= 1.4
-        elif humidity >= 75:
-            stress *= 1.3
-        elif humidity >= 65:
-            stress *= 1.2
-        elif humidity >= 50:
-            stress *= 1.1
-        
-        stress_pct = min(100, int(stress))
+        stress_pct = calculate_heat_stress(temp, humidity)
         
         # Return risk level enum
         if stress_pct >= 80:
@@ -3033,8 +3013,9 @@ class SmhiWeatherChangeAlertSensor(SmhiBaseSensor):
         if not isinstance(series, list) or len(series) < 6:
             return WeatherChangeLevel.STABLE
         
-        # Look at next 6 hours for significant changes
-        changes_score = 0
+        # Largest change of each kind within the next 6 hours. Each kind is scored
+        # once, so a change that simply persists is not counted again every hour.
+        max_temp_change = max_wind_change = max_precip_change = 0.0
         
         # Get current conditions safely
         if not isinstance(series[0], dict):
@@ -3065,31 +3046,35 @@ class SmhiWeatherChangeAlertSensor(SmhiBaseSensor):
             future_precip_prob = clean_value(future.get("probability_of_precipitation"), parameter="probability_of_precipitation")
             
             if future_temp is not None:
-                temp_change = abs(future_temp - current_temp)
-                if temp_change >= 10:
-                    changes_score += 25
-                elif temp_change >= 7:
-                    changes_score += 15
-                elif temp_change >= 5:
-                    changes_score += 10
-            
+                max_temp_change = max(max_temp_change, abs(future_temp - current_temp))
             if future_wind is not None and current_wind is not None:
-                wind_change = abs(future_wind - current_wind)
-                if wind_change >= 10:
-                    changes_score += 20
-                elif wind_change >= 7:
-                    changes_score += 12
-                elif wind_change >= 5:
-                    changes_score += 8
-            
+                max_wind_change = max(max_wind_change, abs(future_wind - current_wind))
             if future_precip_prob is not None and current_precip_prob is not None:
-                precip_change = abs(future_precip_prob - current_precip_prob)
-                if precip_change >= 50:
-                    changes_score += 15
-                elif precip_change >= 30:
-                    changes_score += 10
+                max_precip_change = max(max_precip_change, abs(future_precip_prob - current_precip_prob))
         
-        # Return enum based on accumulated changes
+        # Temperature up to 25, wind up to 20, precipitation probability up to 15:
+        # 60 in total, which is the threshold for "severe".
+        changes_score = 0
+        if max_temp_change >= 10:
+            changes_score += 25
+        elif max_temp_change >= 7:
+            changes_score += 15
+        elif max_temp_change >= 5:
+            changes_score += 10
+        
+        if max_wind_change >= 10:
+            changes_score += 20
+        elif max_wind_change >= 7:
+            changes_score += 12
+        elif max_wind_change >= 5:
+            changes_score += 8
+        
+        if max_precip_change >= 50:
+            changes_score += 15
+        elif max_precip_change >= 30:
+            changes_score += 10
+        
+        # Return enum based on the combined score
         if changes_score >= 60:
             return WeatherChangeLevel.SEVERE
         elif changes_score >= 40:

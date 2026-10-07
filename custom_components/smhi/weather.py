@@ -18,6 +18,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import ATTR_RAW_CURRENT, ATTR_RAW_FORECAST, CONF_NAME, DEFAULT_NAME, DOMAIN
 from .coordinator import SmhiCoordinator
@@ -29,6 +30,7 @@ from .helpers import (
     current_item_from_series,
     octas_to_percent,
     ptype_description,
+    sun_is_up,
     symbol_description,
 )
 
@@ -82,9 +84,13 @@ class SmhiWeather(SingleCoordinatorWeatherEntity[SmhiCoordinator]):
         data = (current_item_from_series(self._series()) or {}).get("data") or {}
         return data if isinstance(data, dict) else {}
 
+    def _daylight(self, moment) -> bool:
+        """Whether the sun is up at this entry's location (not the Home location)."""
+        return sun_is_up(self.coordinator.latitude, self.coordinator.longitude, moment)
+
     @property
     def condition(self):
-        return condition_from_symbol(self._current_data())
+        return condition_from_symbol(self._current_data(), daylight=self._daylight(dt_util.utcnow()))
 
     @property
     def native_temperature(self):
@@ -136,12 +142,12 @@ class SmhiWeather(SingleCoordinatorWeatherEntity[SmhiCoordinator]):
 
     @callback
     def _async_forecast_hourly(self) -> list[Forecast] | None:
-        return ForecastBuilder(self._series()).build_hourly()
+        return ForecastBuilder(self._series(), self._daylight).build_hourly()
 
     @callback
     def _async_forecast_twice_daily(self) -> list[Forecast] | None:
-        return ForecastBuilder(self._series()).build_twice_daily()
+        return ForecastBuilder(self._series(), self._daylight).build_twice_daily()
 
     @callback
     def _async_forecast_daily(self) -> list[Forecast] | None:
-        return ForecastBuilder(self._series()).build_daily()
+        return ForecastBuilder(self._series(), self._daylight).build_daily()

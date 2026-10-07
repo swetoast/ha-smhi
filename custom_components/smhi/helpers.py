@@ -19,10 +19,28 @@ def octas_to_percent(value: Any) -> int | None:
     try: return int(round((float(value) / 8.0) * 100.0))
     except (TypeError, ValueError): return None
 
-def condition_from_symbol(data: dict[str, Any]) -> str | None:
+def sun_is_up(latitude: float, longitude: float, moment) -> bool:
+    """True when the sun is above the horizon at a place and time."""
+    from astral import Observer
+    from astral.sun import elevation
+
+    return elevation(Observer(latitude, longitude), moment) > -0.833
+
+
+def condition_from_symbol(data: dict[str, Any], *, daylight: bool = True) -> str | None:
+    """Home Assistant condition for an SMHI symbol code.
+
+    SMHI uses one "clear sky" symbol for day and night. Home Assistant has a
+    separate clear-night condition, so a clear sky after sunset maps to that.
+    """
     code = clean_value(data.get("symbol_code"), parameter="symbol_code")
-    try: return SYMBOL_TO_CONDITION.get(int(code)) if code is not None else None
-    except (TypeError, ValueError): return None
+    try:
+        condition = SYMBOL_TO_CONDITION.get(int(code)) if code is not None else None
+    except (TypeError, ValueError):
+        return None
+    if condition == "sunny" and not daylight:
+        return "clear-night"
+    return condition
 
 def symbol_description(value: Any) -> str | None:
     value = clean_value(value, parameter="symbol_code")

@@ -25,13 +25,16 @@ from .helpers import (
 class ForecastBuilder:
     """Builder class for creating weather forecasts from time series data."""
 
-    def __init__(self, series: list[dict[str, Any]]) -> None:
+    def __init__(self, series: list[dict[str, Any]], daylight=None) -> None:
         """Initialize forecast builder with time series data.
         
         Args:
             series: List of time series items from API
+            daylight: Optional function(datetime) -> bool, True while the sun is up.
+                Used to report a clear sky at night as clear-night.
         """
         self.series = series if isinstance(series, list) else []
+        self._daylight = daylight
 
     def build_hourly(self, max_hours: int | None = None) -> list[Forecast]:
         """Build hourly forecast.
@@ -123,7 +126,9 @@ class ForecastBuilder:
 
         row: Forecast = {
             "datetime": parsed.isoformat(),
-            "condition": condition_from_symbol(data),
+            "condition": condition_from_symbol(
+                data, daylight=self._daylight(parsed) if self._daylight else True
+            ),
             "native_temperature": clean_value(data.get("air_temperature"), parameter="air_temperature"),
             "native_pressure": clean_value(
                 data.get("air_pressure_at_mean_sea_level"),
@@ -185,7 +190,10 @@ class ForecastBuilder:
         
         row: Forecast = {
             "datetime": min(times).isoformat(),
-            "condition": most_common(condition_from_symbol(data) for data in datas),
+            # A night period (is_daytime False) shows a clear sky as clear-night.
+            "condition": most_common(
+                condition_from_symbol(data, daylight=is_daytime is not False) for data in datas
+            ),
             "native_temperature": max_value(
                 (data.get("air_temperature") for data in datas), 
                 parameter="air_temperature"
