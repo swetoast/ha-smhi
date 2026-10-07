@@ -55,7 +55,7 @@ PARAMETER_FALLBACK: list[dict] = [
     {"name": "relative_humidity", "shortName": "2r", "description": "Relative humidity at 2 metres height.", "levelType": "hl", "level": 2, "unit": "percent", "missingValue": 9999},
     {"name": "air_pressure_at_mean_sea_level", "shortName": "pres", "description": "Air pressure at mean sea level.", "levelType": "hmsl", "level": 0, "unit": "hPa", "missingValue": 9999},
     {"name": "visibility_in_air", "shortName": "vis", "description": "Visibility in air.", "levelType": "hl", "level": 2, "unit": "km", "missingValue": 9999},
-    {"name": "thunderstorm_probability", "shortName": "tstm", "description": "Thunderstorm probability", "levelType": "hl", "level": 0, "unit": "fraction", "missingValue": 9999},
+    {"name": "thunderstorm_probability", "shortName": "tstm", "description": "Thunderstorm probability", "levelType": "hl", "level": 0, "unit": "percent", "missingValue": 9999},
     {"name": "probability_of_frozen_precipitation", "shortName": "fzpr", "description": "Probability of frozen precipitation.", "levelType": "hl", "level": 0, "unit": "fraction", "missingValue": 9999},
     {"name": "cloud_area_fraction", "shortName": "tcc", "description": "Total Cloud Cover", "levelType": "entireAtmosphere", "level": 2, "unit": "octas", "missingValue": 9999},
     {"name": "low_type_cloud_area_fraction", "shortName": "lcc", "description": "Low cloud cover", "levelType": "entireAtmosphere", "level": 2, "unit": "octas", "missingValue": 9999},
@@ -69,7 +69,7 @@ PARAMETER_FALLBACK: list[dict] = [
     {"name": "precipitation_amount_median", "shortName": "tpratemedian", "description": "Median total precipitation amount", "levelType": "hl", "level": 0, "unit": "kg/m2", "missingValue": 9999},
     {"name": "precipitation_amount_mean_deterministic", "shortName": "avg_tprate", "description": "Deterministic mean total precipitation amount", "levelType": "hl", "level": 0, "unit": "kg/m2", "missingValue": 9999},
     {"name": "probability_of_precipitation", "shortName": "tp_gt_0p1", "description": "Probability of precipitation of at least 0.1 mm", "levelType": "hl", "level": 0, "unit": "%", "missingValue": 9999},
-    {"name": "precipitation_frozen_part", "shortName": "spp", "description": "Frozen part of precipitation.", "levelType": "hl", "level": 0, "unit": "fraction", "missingValue": 9999},
+    {"name": "precipitation_frozen_part", "shortName": "spp", "description": "Frozen part of precipitation.", "levelType": "hl", "level": 0, "unit": "percent", "missingValue": 9999},
     {"name": "predominant_precipitation_type_at_surface", "shortName": "ptype", "description": "Precipitation type", "levelType": "hl", "level": 0, "unit": "category", "missingValue": 9999},
     {"name": "symbol_code", "shortName": "Wsymb2", "description": "Weather symbol code with 27 different codes.", "levelType": "hl", "level": 0, "unit": "unknown", "missingValue": 9999},
 ]

@@ -80,7 +80,7 @@
               "scan_interval": "Uppdateringsintervall"
             },
             "data_description": {
-              "forecast_timeseries": "Övre gräns för antal timsteg (SMHI ger upp till ca 82). Högre ger de härledda prognossensorerna en längre horisont.",
+              "forecast_timeseries": "Övre gräns för antal prognossteg. SMHI ger cirka 80: varje timme de första cirka 2,5 dygnen, därefter var 6:e och 12:e timme upp till cirka 10 dygn. Standardvärdet 70 täcker cirka 7 dygn.",
               "scan_interval": "Minuter mellan uppdateringar från SMHI. SMHI publicerar ungefär varje timme, så 30 minuter räcker gott."
             }
           },

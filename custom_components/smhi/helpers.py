@@ -34,6 +34,45 @@ def ptype_description(value: Any) -> str | None:
     try: return PTYPE_MAP.get(int(value)) if value is not None else None
     except (TypeError, ValueError): return None
 
+def _bounded(value: Any, low: float, high: float) -> Any:
+    """Clamp a number to [low, high]; anything that is not a number becomes None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return min(high, max(low, value))
+
+
+# Scales of the three fields SMHI does not report uniformly (verified against the
+# live snow1g API and its parameter.json):
+#   thunderstorm_probability             percent, 0-100 (a value of 1 means 1 %)
+#   probability_of_frozen_precipitation  fraction, 0-1
+#   precipitation_frozen_part            percent, 0-100, or -9 when there is no precipitation
+# Read these fields through the helpers below instead of guessing the scale per value.
+
+def thunderstorm_percent(data: dict[str, Any]) -> Any:
+    """Thunderstorm probability in percent (0-100)."""
+    value = clean_value(data.get("thunderstorm_probability"), parameter="thunderstorm_probability")
+    return _bounded(value, 0, 100)
+
+
+def frozen_probability_percent(data: dict[str, Any]) -> float | None:
+    """Probability of frozen precipitation in percent (SMHI reports a 0-1 fraction)."""
+    value = clean_value(data.get("probability_of_frozen_precipitation"), parameter="probability_of_frozen_precipitation")
+    value = _bounded(value, 0, 1)
+    return None if value is None else round(value * 100, 1)
+
+
+def frozen_part_percent(data: dict[str, Any]) -> Any:
+    """Frozen share of the precipitation in percent (0-100); None when there is no precipitation."""
+    value = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+    return _bounded(value, 0, 100)
+
+
+def frozen_part_fraction(data: dict[str, Any]) -> float | None:
+    """Frozen share of the precipitation as a 0-1 fraction, the scale the risk thresholds use."""
+    value = frozen_part_percent(data)
+    return None if value is None else value / 100.0
+
+
 def current_item_from_series(series: list[dict[str, Any]]) -> dict[str, Any] | None:
     now = dt_util.utcnow()
     fallback = None

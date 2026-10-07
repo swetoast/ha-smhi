@@ -78,7 +78,7 @@ All sensors use temperature thresholds adapted for Swedish weather patterns:
 
 After setup, click Configure on the SMHI integration:
 
-- **Forecast Steps** (1-200, default 70): Number of hourly forecast steps
+- **Forecast Steps** (1-200, default 70): Upper limit on forecast steps. SMHI provides about 80: hourly for roughly the first 2.5 days, then every 6 and 12 hours out to about 10 days. The default of 70 covers about 7 days
 - **Update Interval** (5-180 minutes, default 30): How often to fetch data
 - **Enable Comfort Sensors** (default ON): Feels-like temperature
 - **Enable Frost Sensors** (default ON): Frost risk % and binary sensor

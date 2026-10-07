@@ -8,7 +8,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_LAST_ERROR, ATTR_LAST_SUCCESS, ATTR_STALE, CONF_ENABLE_FROST_SENSORS, CONF_ENABLE_SLIPPERY_SENSORS, CONF_NAME, DOMAIN
-from .helpers import clean_value, current_data_from_payload
+from .helpers import clean_value, current_data_from_payload, frozen_part_fraction, frozen_part_percent
 
 
 def _data(coordinator):
@@ -181,7 +181,7 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """Return True if slippery risk exceeds 50%."""
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
-        frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+        frozen = frozen_part_fraction(data)
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
         if temp is None:
@@ -240,6 +240,6 @@ class SmhiSlipperyConditionsBinarySensor(CoordinatorEntity, BinarySensorEntity):
         data = _data(self.coordinator)
         return {
             "temperature": clean_value(data.get("air_temperature"), parameter="air_temperature"),
-            "precipitation_frozen_part": clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part"),
+            "precipitation_frozen_part": frozen_part_percent(data),
             "precipitation_amount": clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean"),
         }

@@ -35,7 +35,18 @@ from .const import (
     CONF_NAME,
     DOMAIN,
 )
-from .helpers import clean_value, condition_from_symbol, current_data_from_payload, octas_to_percent, ptype_description, symbol_description
+from .helpers import (
+    clean_value,
+    condition_from_symbol,
+    current_data_from_payload,
+    frozen_part_fraction,
+    frozen_part_percent,
+    frozen_probability_percent,
+    octas_to_percent,
+    ptype_description,
+    symbol_description,
+    thunderstorm_percent,
+)
 
 
 # Translation dictionaries for sensor attributes
@@ -438,14 +449,13 @@ def calculate_weather_impact(temp_c: float, wind_ms: float, precip: float | None
         impact += 4
     
     # Thunderstorm bonus (adds to total, not weighted)
-    # SMHI returns this as a percentage (0-100); normalise a 0-1 fraction just in case.
+    # thunder_prob is in percent (0-100), see helpers.thunderstorm_percent.
     if thunder_prob is not None:
-        thunder_pct = thunder_prob * 100 if thunder_prob <= 1.0 else thunder_prob
-        if thunder_pct > 70:
+        if thunder_prob > 70:
             impact += 15
-        elif thunder_pct > 50:
+        elif thunder_prob > 50:
             impact += 10
-        elif thunder_pct > 30:
+        elif thunder_prob > 30:
             impact += 5
     
     return min(100, max(0, int(impact)))
@@ -1756,30 +1766,10 @@ class SmhiPrecipitationSensor(SmhiBaseSensor):
         ):
             attrs[key] = clean_value(data.get(key), parameter=key)
         
-        frozen_prob = clean_value(data.get("probability_of_frozen_precipitation"), parameter="probability_of_frozen_precipitation")
-        if frozen_prob is not None:
-            # Handle both fraction (0-1) and percentage (0-100) formats
-            if frozen_prob <= 1.0:
-                attrs["probability_of_frozen_precipitation"] = frozen_prob * 100
-            elif frozen_prob <= 100.0:
-                attrs["probability_of_frozen_precipitation"] = frozen_prob
-            else:
-                attrs["probability_of_frozen_precipitation"] = 100.0
-        else:
-            attrs["probability_of_frozen_precipitation"] = None
+        attrs["probability_of_frozen_precipitation"] = frozen_probability_percent(data)
         attrs["probability_of_frozen_precipitation_unit"] = "%"
         
-        frozen_part = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
-        if frozen_part is not None:
-            # Handle both fraction (0-1) and percentage (0-100) formats
-            if frozen_part <= 1.0:
-                attrs["precipitation_frozen_part"] = frozen_part * 100
-            elif frozen_part <= 100.0:
-                attrs["precipitation_frozen_part"] = frozen_part
-            else:
-                attrs["precipitation_frozen_part"] = 100.0
-        else:
-            attrs["precipitation_frozen_part"] = None
+        attrs["precipitation_frozen_part"] = frozen_part_percent(data)
         attrs["precipitation_frozen_part_unit"] = "%"
         
         attrs["predominant_precipitation_type_at_surface"] = clean_value(data.get("predominant_precipitation_type_at_surface"), parameter="predominant_precipitation_type_at_surface")
@@ -1832,21 +1822,7 @@ class SmhiThunderstormProbabilitySensor(SmhiBaseSensor):
 
     @property
     def native_value(self):
-        value = clean_value(_data(self.coordinator).get("thunderstorm_probability"), parameter="thunderstorm_probability")
-        if value is None:
-            return None
-        
-        # Handle both fraction (0-1) and percentage (0-100) data from API
-        # SMHI sometimes returns inconsistent data formats
-        if value <= 1.0:
-            # Proper fraction format - convert to percentage
-            return value * 100
-        elif value <= 100.0:
-            # Already in percentage format - use as-is
-            return value
-        else:
-            # Invalid data - cap at 100%
-            return 100.0
+        return thunderstorm_percent(_data(self.coordinator))
 
 
 class SmhiSymbolCodeSensor(SmhiBaseSensor):
@@ -2017,7 +1993,7 @@ class SmhiSlipperyRiskSensor(SmhiBaseSensor):
     def native_value(self):
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
-        frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+        frozen = frozen_part_fraction(data)
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
         if temp is None:
@@ -2029,7 +2005,7 @@ class SmhiSlipperyRiskSensor(SmhiBaseSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         data = _data(self.coordinator)
         temp = clean_value(data.get("air_temperature"), parameter="air_temperature")
-        frozen = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+        frozen = frozen_part_fraction(data)
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         
         attrs = {}
@@ -2064,7 +2040,7 @@ class SmhiWeatherImpactSensor(SmhiBaseSensor):
         wind = clean_value(data.get("wind_speed"), parameter="wind_speed")
         precip = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         visibility = clean_value(data.get("visibility_in_air"), parameter="visibility_in_air")
-        thunder = clean_value(data.get("thunderstorm_probability"), parameter="thunderstorm_probability")
+        thunder = thunderstorm_percent(data)
         
         if temp is None or wind is None:
             return None
@@ -2079,7 +2055,7 @@ class SmhiWeatherImpactSensor(SmhiBaseSensor):
         attrs["current_wind_speed"] = clean_value(data.get("wind_speed"), parameter="wind_speed")
         attrs["current_precipitation"] = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
         attrs["current_visibility"] = clean_value(data.get("visibility_in_air"), parameter="visibility_in_air")
-        attrs["current_thunderstorm_probability"] = clean_value(data.get("thunderstorm_probability"), parameter="thunderstorm_probability")
+        attrs["current_thunderstorm_probability"] = thunderstorm_percent(data)
         return attrs
 
 
@@ -2192,7 +2168,7 @@ class SmhiClothingInsulationSensor(SmhiBaseSensor):
         
         # Rain protection level
         precip_mean = clean_value(data.get("precipitation_amount_mean"), parameter="precipitation_amount_mean")
-        frozen_part = clean_value(data.get("precipitation_frozen_part"), parameter="precipitation_frozen_part")
+        frozen_part = frozen_part_fraction(data)
         attrs["rain_protection"] = get_rain_protection_level(precip_mean, precip, frozen_part)
         
         # Wind protection level

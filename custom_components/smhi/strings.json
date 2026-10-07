@@ -80,7 +80,7 @@
               "scan_interval": "Update interval"
             },
             "data_description": {
-              "forecast_timeseries": "Upper limit on hourly forecast steps (SMHI provides up to ~82). Higher gives the derived forecast sensors a longer horizon.",
+              "forecast_timeseries": "Upper limit on forecast steps. SMHI provides about 80: hourly for roughly the first 2.5 days, then every 6 and 12 hours out to about 10 days. The default of 70 covers about 7 days.",
               "scan_interval": "Minutes between updates from SMHI. SMHI publishes roughly hourly, so 30 minutes is plenty."
             }
           },
